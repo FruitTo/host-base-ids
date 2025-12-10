@@ -17,6 +17,8 @@ struct FTP_State
   chrono::system_clock::time_point first_seen;
   chrono::system_clock::time_point last_seen;
   int login_fail = 0;
+
+  bool ftp_brute_force = false;
 };
 
 void clean_ftp_state(unordered_map<string, FTP_State> &ftpMap, chrono::seconds timeout)

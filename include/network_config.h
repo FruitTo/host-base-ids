@@ -12,13 +12,14 @@ struct NetworkConfig {
    std::optional<std::string> HOME_NET;
    std::optional<std::string> EXTERNAL_NET;
 
-   std::vector<std::string> HTTP_PORTS;
-   std::vector<std::string> SSH_PORTS;
-   std::vector<std::string> FTP_PORTS;
-   std::vector<std::string> SIP_PORTS;
+   std::vector<std::uint16_t> HTTP_PORTS;
+   std::vector<std::uint16_t> SSH_PORTS;
+   std::vector<std::uint16_t> FTP_PORTS;
+   std::vector<std::uint16_t> SIP_PORTS;
+   std::vector<std::uint16_t> TELNET_PORTS;
 
-   std::vector<std::string> ORACLE_PORTS;
-   std::vector<std::string> FILE_DATA_PORTS;
+   std::vector<std::uint16_t> ORACLE_PORTS;
+   std::vector<std::uint16_t> FILE_DATA_PORTS;
 
    std::optional<bool> HTTP_SERVERS = false;
    std::optional<bool> SSH_SERVERS = false;

@@ -27,7 +27,7 @@
 #include "./event_log.h"
 #include "./ssh_state.h"
 #include "./ftp_state.h"
-#include "./ip_port_connect.h"
+#include "./ip_connect.h"
 
 using namespace Tins;
 using namespace std;
@@ -46,9 +46,9 @@ const chrono::seconds IP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
 const string BTMP_PATH = "/var/log/btmp";
 const string VSFTPD_LOG_PATH = "/var/log/vsftpd.log";
 
+
 inline void sniff(NetworkConfig &conf, const string &conninfo)
 {
-
   pqxx::connection conn{conninfo};
 
   // Initial Log Variable
@@ -63,7 +63,24 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
   unordered_map<string, vector<EventLog>> evenMap;
   unordered_map<string, SSH_State> sshMap;
   unordered_map<string, FTP_State> ftpMap;
-  unordered_map<string, IP_Port_Connect> ipPortMap;
+  unordered_map<string, IP_Connect> ipConnectMap;
+
+  // Port List
+  vector<uint16_t> portList;
+
+  auto merge_ports = [&](const std::vector<uint16_t>& source_ports) {
+    portList.insert(
+        portList.end(),
+        source_ports.begin(),
+        source_ports.end()
+    );
+  };
+
+  if(conf.HTTP_SERVERS) merge_ports(conf.HTTP_PORTS);
+  if(conf.SSH_SERVERS) merge_ports(conf.SSH_PORTS);
+  if(conf.FTP_SERVERS) merge_ports(conf.FTP_PORTS);
+  if(conf.TELNET_SERVERS) merge_ports(conf.TELNET_PORTS);
+  if(conf.SIP_SERVERS) merge_ports(conf.SIP_PORTS);
 
   // Sniffer
   SnifferConfiguration cfg;
@@ -93,9 +110,8 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
 
     string client_ip = (ip.src_addr() != conf.IP) ? ip.src_addr().to_string() : ip.dst_addr().to_string();
 
-
     // Defined Flow Key (src_addr + src_port + dst_addr + dst_port + tcp | udp | icmp)
-    string key;
+    string flow_key;
     uint16_t sport;
     uint16_t dport;
     string protocol = "";
@@ -105,17 +121,17 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
     {
        sport = tcp->sport();
        dport = tcp->dport();
-       key = define_key(ip, sport, dport);
+       flow_key = define_key(ip, sport, dport);
        protocol = tcp_define_protocol(conf, tcp);
-    // UDP
     }
+    // UDP
     else if(UDP* udp = pdu->find_pdu<UDP>())
     {
        sport = udp->sport();
        dport = udp->dport();
-       key = define_key(ip, sport, dport);
-    // ICMP
+       flow_key = define_key(ip, sport, dport);
     }
+    // ICMP
     else if(ICMP* icmp = pdu->find_pdu<ICMP>())
     {
       sport = 0;
@@ -124,7 +140,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
     }
 
     // Flow
-    auto it_flow = flowMap.find(key);
+    auto it_flow = flowMap.find(flow_key);
     if(it_flow != flowMap.end())
     {
       // Update Flow
@@ -155,13 +171,13 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
         }
       }
 
-      flowMap[key] = flow;
+      flowMap[flow_key] = flow;
     }
     else
     {
       // Create Flow
       Flow flow;
-      flow.key = key;
+      flow.key = flow_key;
       flow.src_addr = ip.src_addr();
       flow.sport = sport;
       flow.dst_addr = ip.dst_addr();
@@ -188,57 +204,80 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
       }
 
       flow.count++;
-      flowMap[key] = flow;
-    }
-
-    // EvenLog
-    auto it_even = evenMap.find(client_ip);
-    if(it_even == evenMap.end())
-    {
-      // Create Evenlog
-      vector<EventLog> even_log;
-      evenMap[client_ip] = even_log;
+      flowMap[flow_key] = flow;
     }
 
     string ip_key = define_ip_key(ip, conf);
 
-    // IP Port Connect
-    auto it_ip = ipPortMap.find(ip_key);
-    if(it_ip != ipPortMap.end())
+    // IP Connect
+    auto it_ip = ipConnectMap.find(ip_key);
+    if(it_ip != ipConnectMap.end())
     {
-      // Update IP Port Map
-      IP_Port_Connect& ip_port_connect = it_ip->second;
-      ip_port_connect.last_seen = SystemClock::now();
+      // Update IP Connect Map
+      IP_Connect& ip_connect = it_ip->second;
+
+      ip_connect.last_seen = SystemClock::now();
       uint16_t port_connect = define_port_connect(pdu, ip_key);
-      auto it = find(ip_port_connect.port_list.begin(), ip_port_connect.port_list.end(), port_connect);
-      if(it == ip_port_connect.port_list.end())
+      auto it = find(ip_connect.port_list.begin(), ip_connect.port_list.end(), port_connect);
+      if(it == ip_connect.port_list.end())
       {
-        ip_port_connect.port_list.push_back(port_connect);
+        ip_connect.port_list.push_back(port_connect);
       }
-      auto duration = ip_port_connect.last_seen - ip_port_connect.first_seen;
-      auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
-      if (ip_port_connect.port_list.size() > 80 && elapsed_seconds <= chrono::seconds(30))
+      else
       {
-        if(ip_port_connect.port_scan == false)
+        if (TCP* tcp = pdu->find_pdu<TCP>())
         {
-          cout << "[ALERT] PORT SCAN DETECTED " << endl;
-          ip_port_connect.port_scan = true;
+          for(auto i : portList)
+          {
+            if(tcp->flags() == TCP::SYN && tcp->dport() == i) ip_connect.syn_count++;
+          }
         }
       }
 
-      clean_ip_port_connect(ipPortMap, IP_PORT_CONNECT_TIMEOUT);
+      auto duration = ip_connect.last_seen - ip_connect.first_seen;
+      auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
+      if (ip_connect.port_list.size() > 80 && elapsed_seconds <= chrono::seconds(30))
+      {
+        if(ip_connect.port_scan == false)
+        {
+          cout << "[ALERT] PORT SCAN DETECTED " << endl;
+          for(auto i : ip_connect.port_list){
+            cout << i << endl;
+          }
+          ip_connect.port_scan = true;
+        }
+      }
+
+      if (ip_connect.syn_count > 80 && elapsed_seconds <= chrono::seconds(30))
+      {
+        if(ip_connect.syn_flood == false)
+        {
+          cout << "[ALERT] SYN FLOOD DETECT (IP : "<< ip_connect.ip << " )" << endl;
+          ip_connect.syn_count = true;
+        }
+      }
+
+      clean_ip_connect(ipConnectMap, IP_PORT_CONNECT_TIMEOUT);
     }
     else
     {
-      // Create IP Port Map
-      IP_Port_Connect ip_port_connect;
-      ip_port_connect.ip = ip_key;
-      ip_port_connect.first_seen = SystemClock::now();
-      ip_port_connect.last_seen = SystemClock::now();
+      // Create IP Connect Map
+      IP_Connect ip_connect;
+      ip_connect.ip = ip_key;
+      ip_connect.flow_key = flow_key;
+      ip_connect.first_seen = SystemClock::now();
+      ip_connect.last_seen = SystemClock::now();
       uint16_t port_connect = define_port_connect(pdu, ip_key);
-      ip_port_connect.port_list.push_back(port_connect);
+      ip_connect.port_list.push_back(port_connect);
 
-      ipPortMap[ip_key] = ip_port_connect;
+      if (TCP* tcp = pdu->find_pdu<TCP>())
+      {
+        for(auto i : portList)
+        {
+          if(tcp->flags() == TCP::SYN && tcp->dport() == i) ip_connect.syn_count++;
+        }
+        ipConnectMap[ip_key] = ip_connect;
+      }
     }
 
     // IF SSH
@@ -253,13 +292,21 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
         auto duration = ssh.last_seen - ssh.first_seen;
         auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
         ssh_read_fail_state(BTMP_PATH, ssh);
-        if (elapsed_seconds < chrono::seconds(60) && ssh.login_fail > 10)
+        if (elapsed_seconds < chrono::seconds(30) && ssh.login_fail > 10)
         {
-          cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
+          if(ssh.ssh_brute_force == false)
+          {
+            cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
+            ssh.ssh_brute_force = true;
+          }
         }
         else if (ssh.login_fail > 30)
         {
-          cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
+          if(ssh.ssh_brute_force == false)
+          {
+            cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
+            ssh.ssh_brute_force = true;
+          }
         }
       }
       else
@@ -289,11 +336,19 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
         ftp_read_fail_state(VSFTPD_LOG_PATH, ftp);
         if (elapsed_seconds < chrono::seconds(60) && ftp.login_fail > 10)
         {
-          cout << "[ALERT] FTP BRUTE FORCE DETECTED (High Rate): " << endl;
+          if(ftp.ftp_brute_force == false)
+          {
+            cout << "[ALERT] FTP BRUTE FORCE DETECTED (High Rate): " << endl;
+            ftp.ftp_brute_force = true;
+          }
         }
         else if (ftp.login_fail > 30)
         {
-          cout << "[ALERT] FTP BRUTE FORCE DETECTED (Total Limit): " << endl;
+          if(ftp.ftp_brute_force == false)
+          {
+            cout << "[ALERT] FTP BRUTE FORCE DETECTED (Total Limit): " << endl;
+            ftp.ftp_brute_force = true;
+          }
         }
       }
       else
@@ -308,6 +363,17 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
         ftpMap[ip_key] = ftp;
       }
     }
+
+
+    // EvenLog
+    auto it_even = evenMap.find(client_ip);
+    if(it_even == evenMap.end())
+    {
+      // Create Evenlog
+      vector<EventLog> even_log;
+      evenMap[client_ip] = even_log;
+    }
+
 
     clean_flow(flowMap, FLOW_TIMEOUT);
     clean_event_log(evenMap, IP_TIMEOUT);

@@ -18,12 +18,12 @@ string define_key(const IP& ip, uint16_t sport, uint16_t dport) {
 }
 
 string define_ip_key(const IP& ip, NetworkConfig& conf){
-  string a = ip.src_addr().to_string();
-  string b = ip.dst_addr().to_string();
-  if(a == conf.IP){
-    return b;
+  string src_addr = ip.src_addr().to_string();
+  string dst_addr = ip.dst_addr().to_string();
+  if(src_addr == conf.IP){
+    return dst_addr;
   }else {
-    return a;
+    return src_addr;
   }
 }
 

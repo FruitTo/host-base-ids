@@ -15,9 +15,8 @@ using Tins::TCP;
 string tcp_define_protocol(NetworkConfig &conf, Tins::TCP *tcp)
 {
   // HTTP
-  for (const string &port_str : conf.HTTP_PORTS)
+  for (const uint16_t &port : conf.HTTP_PORTS)
   {
-    int port = stoi(port_str);
     if (tcp->dport() == port)
     {
       return "http";
@@ -29,9 +28,8 @@ string tcp_define_protocol(NetworkConfig &conf, Tins::TCP *tcp)
   }
 
   // SSH
-  for (const string &port_str : conf.SSH_PORTS)
+  for (const uint16_t &port : conf.SSH_PORTS)
   {
-    int port = stoi(port_str);
     if (tcp->dport() == port)
     {
       return "ssh";
@@ -43,9 +41,8 @@ string tcp_define_protocol(NetworkConfig &conf, Tins::TCP *tcp)
   }
 
   // FTP
-  for (const string &port_str : conf.FTP_PORTS)
+  for (const uint16_t &port : conf.FTP_PORTS)
   {
-    int port = stoi(port_str);
     if (tcp->dport() == port)
     {
       return "ftp";
@@ -59,12 +56,9 @@ string tcp_define_protocol(NetworkConfig &conf, Tins::TCP *tcp)
   return "";
 }
 
-uint16_t define_port_connect(PDU* pdu, const std::string& ip_key) // ใช้ const& สำหรับ string และ PDU*
+uint16_t define_port_connect(PDU* pdu, const std::string& ip_key)
 {
-    if (!pdu)
-    {
-        return 0;
-    }
+    if (!pdu) return 0;
 
     if (IP* ip = pdu->find_pdu<IP>())
     {
@@ -72,22 +66,22 @@ uint16_t define_port_connect(PDU* pdu, const std::string& ip_key) // ใช้ c
         {
             if (ip->src_addr().to_string() == ip_key)
             {
-                return tcp->sport();
+              return tcp->dport();
             }
             else
             {
-                return tcp->dport();
+              return tcp->sport();
             }
         }
         else if (UDP* udp = pdu->find_pdu<UDP>())
         {
             if (ip->src_addr().to_string() == ip_key)
             {
-                return udp->sport();
+              return udp->dport();
             }
             else
             {
-                return udp->dport();
+              return udp->sport();
             }
         }
     }

@@ -9,20 +9,55 @@
 #include <optional>
 #include <limits>
 #include <string>
-#include <vector>
 #include <future>
 #include <unistd.h>
 #include <sys/types.h>
 #include <cstring>
+#include <sstream>
+#include <vector>
+#include <stdexcept>
+#include <algorithm>
+#include <cstdint>
 
 using namespace std;
 using namespace BS;
 
-inline void parsePorts(const string &input, vector<string> &target)
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <stdexcept>
+#include <cstdint>
+
+inline void parsePorts(const std::string &input, std::vector<uint16_t> &target)
 {
-  istringstream iss(input);
-  string port;
-  while (iss >> port) target.push_back(port);
+  std::istringstream iss(input);
+  std::string port_str;
+
+  while (iss >> port_str)
+  {
+    try
+    {
+      int port_int = std::stoi(port_str);
+
+      if (port_int > 0 && port_int <= 65535)
+      {
+        target.push_back(static_cast<uint16_t>(port_int));
+      }
+      else
+      {
+        std::cerr << "Warning: Port number " << port_str << " is out of valid range (1-65535) and was skipped." << std::endl;
+      }
+    }
+    catch (const std::invalid_argument& e)
+    {
+      std::cerr << "Warning: Invalid port format '" << port_str << "' found and was skipped." << std::endl;
+    }
+    catch (const std::out_of_range& e)
+    {
+      std::cerr << "Warning: Port number " << port_str << " is too large and was skipped." << std::endl;
+    }
+  }
 }
 
 int main()
@@ -59,7 +94,7 @@ int main()
 
     cout << "\nConfiguring services for interface: " << iface << "\n";
 
-    auto askService = [&](const string &name, optional<bool> &flag, vector<string> &ports)
+    auto askService = [&](const string &name, optional<bool> &flag, vector<uint16_t> &ports)
     {
       cout << name << " Service? [y/n]: ";
       cin >> yesno;
@@ -89,8 +124,8 @@ int main()
     task.push_back(pool.submit_task([conf, conninfo]() mutable {
       try {
         sniff(conf, conninfo);
-      } catch (const std::exception& e) {
-        cout << std::string("sniff exception: ") + e.what();
+      } catch (const exception& e) {
+        cout << string("sniff exception: ") + e.what();
       }
     }));
   }
