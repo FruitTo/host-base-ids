@@ -1,0 +1,17 @@
+logs/
+
+bin/snort3/
+
+bin/snort3/build/src/snort
+
+config/snort.lua
+
+main_exe
+
+snort_logs/
+
+data/
+
+.vscode/
+
+alert/
