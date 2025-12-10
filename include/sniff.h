@@ -27,6 +27,7 @@
 #include "./event_log.h"
 #include "./ssh_state.h"
 #include "./ftp_state.h"
+#include "./ip_port_connect.h"
 
 using namespace Tins;
 using namespace std;
@@ -40,33 +41,36 @@ const chrono::seconds FLOW_TIMEOUT = chrono::seconds(10);
 const chrono::seconds IP_TIMEOUT = chrono::seconds(10);
 const chrono::seconds SSH_TIMEOUT = chrono::seconds(30);
 const chrono::seconds FTP_TIMEOUT = chrono::seconds(30);
-const string BTMP_PATH =  "/var/log/btmp";
+const chrono::seconds IP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
+
+const string BTMP_PATH = "/var/log/btmp";
 const string VSFTPD_LOG_PATH = "/var/log/vsftpd.log";
 
-inline void sniff(NetworkConfig &conf, const string& conninfo)
+inline void sniff(NetworkConfig &conf, const string &conninfo)
 {
 
   pqxx::connection conn{conninfo};
 
   // Initial Log Variable
-  string currentDay  = currentDate();
+  string currentDay = currentDate();
   string currentTime = timeStamp();
   string currentPath = "./logs/" + getPath();
   filesystem::create_directories(currentPath);
-  auto writer = make_unique<PacketWriter>( currentPath + conf.NAME + "_" + currentDay + "_" + currentTime + ".pcap", DataLinkType<EthernetII>() );
+  auto writer = make_unique<PacketWriter>(currentPath + conf.NAME + "_" + currentDay + "_" + currentTime + ".pcap", DataLinkType<EthernetII>());
 
   // Map
   unordered_map<string, Flow> flowMap;
   unordered_map<string, vector<EventLog>> evenMap;
   unordered_map<string, SSH_State> sshMap;
   unordered_map<string, FTP_State> ftpMap;
+  unordered_map<string, IP_Port_Connect> ipPortMap;
 
   // Sniffer
   SnifferConfiguration cfg;
   cfg.set_promisc_mode(true);
   Sniffer sniffer(conf.NAME, cfg);
-  sniffer.sniff_loop([&](Packet &pkt){
-
+  sniffer.sniff_loop([&](Packet &pkt)
+  {
     PDU* pdu = pkt.pdu();
     if (!pdu) return true;
     IP &ip = pdu->rfind_pdu<IP>();
@@ -74,14 +78,16 @@ inline void sniff(NetworkConfig &conf, const string& conninfo)
     // Write Pcap Log
     string date = currentDate();
     string path = getPath();
-    if (currentDay != date) {
+    if (currentDay != date)
+    {
       currentDay  = date;
       currentPath = path;
       filesystem::create_directories(currentPath);
       string ts = timeStamp();
-      writer = make_unique<PacketWriter>(
-          currentPath + conf.NAME + "_" + currentDay + "_" + ts + ".pcap",
-          DataLinkType<EthernetII>());
+      writer = make_unique<PacketWriter>
+      (
+        currentPath + conf.NAME + "_" + currentDay + "_" + ts + ".pcap", DataLinkType<EthernetII>()
+      );
     }
     writer->write(pkt);
 
@@ -95,18 +101,23 @@ inline void sniff(NetworkConfig &conf, const string& conninfo)
     string protocol = "";
 
     // TCP
-    if (TCP* tcp = pdu->find_pdu<TCP>()) {
+    if (TCP* tcp = pdu->find_pdu<TCP>())
+    {
        sport = tcp->sport();
        dport = tcp->dport();
        key = define_key(ip, sport, dport);
        protocol = tcp_define_protocol(conf, tcp);
     // UDP
-    } else if(UDP* udp = pdu->find_pdu<UDP>()){
+    }
+    else if(UDP* udp = pdu->find_pdu<UDP>())
+    {
        sport = udp->sport();
        dport = udp->dport();
        key = define_key(ip, sport, dport);
     // ICMP
-    } else if(ICMP* icmp = pdu->find_pdu<ICMP>()) {
+    }
+    else if(ICMP* icmp = pdu->find_pdu<ICMP>())
+    {
       sport = 0;
       dport = 0;
       return true;
@@ -114,22 +125,30 @@ inline void sniff(NetworkConfig &conf, const string& conninfo)
 
     // Flow
     auto it_flow = flowMap.find(key);
-    if(it_flow != flowMap.end()){
+    if(it_flow != flowMap.end())
+    {
       // Update Flow
       Flow& flow = it_flow->second;
       flow.count++;
       flow.last_seen = Clock::now();
 
       // Establish
-      if(TCP* tcp = pdu->find_pdu<TCP>()){
-        if(flow.count == 2 && flow.sync == true){
-          if(tcp->flags() == (TCP::SYN | TCP::ACK)) {
+      if(TCP* tcp = pdu->find_pdu<TCP>())
+      {
+        if(flow.count == 2 && flow.sync == true)
+        {
+          if(tcp->flags() == (TCP::SYN | TCP::ACK))
+          {
             flow.sync_ack = true;
           }
-        }else if(flow.count == 3 && flow.sync_ack == true) {
-          if(tcp->flags() == TCP::ACK) {
+        }
+        else if(flow.count == 3 && flow.sync_ack == true)
+        {
+          if(tcp->flags() == TCP::ACK)
+          {
             flow.ack = true;
-            if(flow.sync && flow.sync_ack && flow.ack){
+            if(flow.sync && flow.sync_ack && flow.ack)
+            {
               flow.established = true;
             }
           }
@@ -137,7 +156,9 @@ inline void sniff(NetworkConfig &conf, const string& conninfo)
       }
 
       flowMap[key] = flow;
-    } else {
+    }
+    else
+    {
       // Create Flow
       Flow flow;
       flow.key = key;
@@ -150,13 +171,20 @@ inline void sniff(NetworkConfig &conf, const string& conninfo)
       flow.create_at = Clock::now();
       flow.last_seen = Clock::now();
 
-      if (TCP* tcp = pdu->find_pdu<TCP>()){
-        if(tcp->flags() == 0){
-                cout << "[ALERT] TCP NULL SCAN DETECTED" << endl;
-        }else if(tcp->flags() == TCP::SYN){
+      if (TCP* tcp = pdu->find_pdu<TCP>())
+      {
+        if(tcp->flags() == 0)
+        {
+          cout << "[ALERT] TCP NULL SCAN DETECTED" << endl;
+        }
+        else if(tcp->flags() == TCP::SYN)
+        {
           flow.sync = true;
         }
-      }else if(UDP* udp = pdu->find_pdu<UDP>()) {
+      }
+      else if(UDP* udp = pdu->find_pdu<UDP>())
+      {
+
       }
 
       flow.count++;
@@ -165,65 +193,120 @@ inline void sniff(NetworkConfig &conf, const string& conninfo)
 
     // EvenLog
     auto it_even = evenMap.find(client_ip);
-    if(it_even == evenMap.end()){
+    if(it_even == evenMap.end())
+    {
       // Create Evenlog
       vector<EventLog> even_log;
       evenMap[client_ip] = even_log;
     }
 
     string ip_key = define_ip_key(ip, conf);
-    // IF SSH
-    if (protocol == "ssh") {
-        auto it_ssh = sshMap.find(ip_key);
-        if (it_ssh != sshMap.end()) {
-            SSH_State& ssh = it_ssh->second;
-            ssh.last_seen = SystemClock::now();
-            auto duration = ssh.last_seen - ssh.first_seen;
-            auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
-            ssh_read_fail_state(BTMP_PATH, ssh);
-            if (elapsed_seconds < chrono::seconds(60) && ssh.login_fail > 6) {
-                cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
-            }
-            else if (ssh.login_fail > 30) {
-                cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
-            }
-        } else {
-            SSH_State ssh;
-            ssh.ip = ip.src_addr().to_string();
-            ssh.first_seen = SystemClock::now();
-            ssh.last_seen = SystemClock::now();
-            ssh.login_fail = 0;
 
-            sshMap[ip_key] = ssh;
+    // IP Port Connect
+    auto it_ip = ipPortMap.find(ip_key);
+    if(it_ip != ipPortMap.end())
+    {
+      // Update IP Port Map
+      IP_Port_Connect& ip_port_connect = it_ip->second;
+      ip_port_connect.last_seen = SystemClock::now();
+      uint16_t port_connect = define_port_connect(pdu, ip_key);
+      auto it = find(ip_port_connect.port_list.begin(), ip_port_connect.port_list.end(), port_connect);
+      if(it == ip_port_connect.port_list.end())
+      {
+        ip_port_connect.port_list.push_back(port_connect);
+      }
+      auto duration = ip_port_connect.last_seen - ip_port_connect.first_seen;
+      auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
+      if (ip_port_connect.port_list.size() > 80 && elapsed_seconds <= chrono::seconds(30))
+      {
+        if(ip_port_connect.port_scan == false)
+        {
+          cout << "[ALERT] PORT SCAN DETECTED " << endl;
+          ip_port_connect.port_scan = true;
         }
+      }
+
+      clean_ip_port_connect(ipPortMap, IP_PORT_CONNECT_TIMEOUT);
+    }
+    else
+    {
+      // Create IP Port Map
+      IP_Port_Connect ip_port_connect;
+      ip_port_connect.ip = ip_key;
+      ip_port_connect.first_seen = SystemClock::now();
+      ip_port_connect.last_seen = SystemClock::now();
+      uint16_t port_connect = define_port_connect(pdu, ip_key);
+      ip_port_connect.port_list.push_back(port_connect);
+
+      ipPortMap[ip_key] = ip_port_connect;
+    }
+
+    // IF SSH
+    if (protocol == "ssh")
+    {
+      auto it_ssh = sshMap.find(ip_key);
+      if (it_ssh != sshMap.end())
+      {
+        // Update SSH State
+        SSH_State& ssh = it_ssh->second;
+        ssh.last_seen = SystemClock::now();
+        auto duration = ssh.last_seen - ssh.first_seen;
+        auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
+        ssh_read_fail_state(BTMP_PATH, ssh);
+        if (elapsed_seconds < chrono::seconds(60) && ssh.login_fail > 10)
+        {
+          cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
+        }
+        else if (ssh.login_fail > 30)
+        {
+          cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
+        }
+      }
+      else
+      {
+        // Create SSH State
+        SSH_State ssh;
+        ssh.ip = ip.src_addr().to_string();
+        ssh.first_seen = SystemClock::now();
+        ssh.last_seen = SystemClock::now();
+        ssh.login_fail = 0;
+
+        sshMap[ip_key] = ssh;
+      }
     }
 
     // IF FTP
-    if (protocol == "ftp") {
-        auto it_ftp = ftpMap.find(ip_key);
-        if (it_ftp != ftpMap.end()) {
-            FTP_State& ftp = it_ftp->second;
-            ftp.last_seen = SystemClock::now();
-            auto duration = ftp.last_seen - ftp.first_seen;
-            auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
-            ftp.login_fail = 0;
-            ftp_read_fail_state(VSFTPD_LOG_PATH, ftp);
-            cout << ftp.login_fail << endl;
-            if (elapsed_seconds < chrono::seconds(60) && ftp.login_fail > 6) {
-                cout << "[ALERT] FTP BRUTE FORCE DETECTED (High Rate): " << endl;
-            }
-            else if (ftp.login_fail > 15) {
-                cout << "[ALERT] FTP BRUTE FORCE DETECTED (Total Limit): " << endl;
-            }
-        } else {
-            FTP_State ftp;
-            ftp.ip = ip.src_addr().to_string();
-            ftp.first_seen = SystemClock::now();
-            ftp.last_seen = SystemClock::now();
-            ftp.login_fail = 0;
-
-            ftpMap[ip_key] = ftp;
+    if (protocol == "ftp")
+    {
+      auto it_ftp = ftpMap.find(ip_key);
+      if (it_ftp != ftpMap.end())
+      {
+        // Update FTP State
+        FTP_State& ftp = it_ftp->second;
+        ftp.last_seen = SystemClock::now();
+        auto duration = ftp.last_seen - ftp.first_seen;
+        auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
+        ftp_read_fail_state(VSFTPD_LOG_PATH, ftp);
+        if (elapsed_seconds < chrono::seconds(60) && ftp.login_fail > 10)
+        {
+          cout << "[ALERT] FTP BRUTE FORCE DETECTED (High Rate): " << endl;
         }
+        else if (ftp.login_fail > 30)
+        {
+          cout << "[ALERT] FTP BRUTE FORCE DETECTED (Total Limit): " << endl;
+        }
+      }
+      else
+      {
+        // Create FTP State
+        FTP_State ftp;
+        ftp.ip = ip.src_addr().to_string();
+        ftp.first_seen = SystemClock::now();
+        ftp.last_seen = SystemClock::now();
+        ftp.login_fail = 0;
+
+        ftpMap[ip_key] = ftp;
+      }
     }
 
     clean_flow(flowMap, FLOW_TIMEOUT);

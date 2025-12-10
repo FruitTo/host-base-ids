@@ -4,6 +4,7 @@
 #include <tins/tins.h>
 #include <tins/tcp.h>
 #include <string>
+#include <tins/tins.h>
 
 #include "./network_config.h"
 
@@ -22,8 +23,9 @@ string tcp_define_protocol(NetworkConfig &conf, Tins::TCP *tcp)
       return "http";
     }
   }
-  if (tcp->sport() == 80 || tcp->dport() == 80){
-      return "http";
+  if (tcp->sport() == 80 || tcp->dport() == 80)
+  {
+    return "http";
   }
 
   // SSH
@@ -35,7 +37,8 @@ string tcp_define_protocol(NetworkConfig &conf, Tins::TCP *tcp)
       return "ssh";
     }
   }
-  if(tcp->sport() == 22 || tcp->dport() == 22){
+  if (tcp->sport() == 22 || tcp->dport() == 22)
+  {
     return "ssh";
   }
 
@@ -48,11 +51,47 @@ string tcp_define_protocol(NetworkConfig &conf, Tins::TCP *tcp)
       return "ftp";
     }
   }
-  if(tcp->sport() == 21 || tcp->dport() == 21){
+  if (tcp->sport() == 21 || tcp->dport() == 21)
+  {
     return "ftp";
   }
 
   return "";
+}
+
+uint16_t define_port_connect(PDU* pdu, const std::string& ip_key) // ใช้ const& สำหรับ string และ PDU*
+{
+    if (!pdu)
+    {
+        return 0;
+    }
+
+    if (IP* ip = pdu->find_pdu<IP>())
+    {
+        if (TCP* tcp = pdu->find_pdu<TCP>())
+        {
+            if (ip->src_addr().to_string() == ip_key)
+            {
+                return tcp->sport();
+            }
+            else
+            {
+                return tcp->dport();
+            }
+        }
+        else if (UDP* udp = pdu->find_pdu<UDP>())
+        {
+            if (ip->src_addr().to_string() == ip_key)
+            {
+                return udp->sport();
+            }
+            else
+            {
+                return udp->dport();
+            }
+        }
+    }
+    return 0;
 }
 
 #endif
