@@ -1,3 +1,13 @@
+This Project can work only **linux debian base** .
+**Insatllation**
+
+```bash
+# Follow this command
+./install.sh
+./run.sh
+```
+
+
 ```sql
 create table alert (
 	timestamp char(20) not null,

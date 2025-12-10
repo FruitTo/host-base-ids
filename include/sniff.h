@@ -47,7 +47,7 @@ const string BTMP_PATH = "/var/log/btmp";
 const string VSFTPD_LOG_PATH = "/var/log/vsftpd.log";
 
 
-inline void sniff(NetworkConfig &conf, const string &conninfo)
+inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
 {
   pqxx::connection conn{conninfo};
 
@@ -241,9 +241,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
         if(ip_connect.port_scan == false)
         {
           cout << "[ALERT] PORT SCAN DETECTED " << endl;
-          for(auto i : ip_connect.port_list){
-            cout << i << endl;
-          }
           ip_connect.port_scan = true;
         }
       }
@@ -253,7 +250,24 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
         if(ip_connect.syn_flood == false)
         {
           cout << "[ALERT] SYN FLOOD DETECT (IP : "<< ip_connect.ip << " )" << endl;
-          ip_connect.syn_count = true;
+          ip_connect.syn_flood = true;
+        }
+
+        // IPS
+        if(ip_connect.blocked == false){
+          if(mode && ip_connect.syn_flood)
+          {
+            string block_command = "sudo iptables -A INPUT -s " + ip_connect.ip + " -j DROP";
+            if (system(block_command.c_str()) == 0)
+            {
+              cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ip_connect.ip << endl;
+            }
+            else
+            {
+              cerr << "[ACTION FAILED] COULD NOT EXECUTE IPTABLES COMMAND." << endl;
+            }
+          }
+          ip_connect.blocked = true;
         }
       }
 
@@ -292,20 +306,54 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
         auto duration = ssh.last_seen - ssh.first_seen;
         auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
         ssh_read_fail_state(BTMP_PATH, ssh);
-        if (elapsed_seconds < chrono::seconds(30) && ssh.login_fail > 10)
+        if (elapsed_seconds < chrono::seconds(60) && ssh.login_fail > 10)
         {
           if(ssh.ssh_brute_force == false)
           {
             cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
             ssh.ssh_brute_force = true;
           }
+
+          // IPS
+          if(ssh.blocked == false){
+            if(mode && ssh.ssh_brute_force)
+            {
+              string block_command = "sudo iptables -A INPUT -s " + ssh.ip + " -j DROP";
+              if (system(block_command.c_str()) == 0)
+              {
+                cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ssh.ip << endl;
+              }
+              else
+              {
+                cerr << "[ACTION FAILED] COULD NOT EXECUTE IPTABLES COMMAND." << endl;
+              }
+              ssh.blocked = true;
+            }
+          }
         }
-        else if (ssh.login_fail > 30)
+        else if (ssh.login_fail > 100)
         {
           if(ssh.ssh_brute_force == false)
           {
             cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
             ssh.ssh_brute_force = true;
+          }
+
+          // IPS
+          if(ssh.blocked == false){
+            if(mode && ssh.ssh_brute_force)
+            {
+              string block_command = "sudo iptables -A INPUT -s " + ssh.ip + " -j DROP";
+              if (system(block_command.c_str()) == 0)
+              {
+                cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ssh.ip << endl;
+              }
+              else
+              {
+                cerr << "[ACTION FAILED] COULD NOT EXECUTE IPTABLES COMMAND." << endl;
+              }
+              ssh.blocked = true;
+            }
           }
         }
       }
@@ -341,13 +389,49 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
             cout << "[ALERT] FTP BRUTE FORCE DETECTED (High Rate): " << endl;
             ftp.ftp_brute_force = true;
           }
+
+          // IPS
+          if(ftp.blocked == false)
+          {
+            if(mode && ftp.ftp_brute_force)
+            {
+              string block_command = "sudo iptables -A INPUT -s " + ftp.ip + " -j DROP";
+              if (system(block_command.c_str()) == 0)
+              {
+                cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ftp.ip << endl;
+              }
+              else
+              {
+                cerr << "[ACTION FAILED] COULD NOT EXECUTE IPTABLES COMMAND." << endl;
+              }
+            }
+            ftp.blocked = true;
+          }
         }
-        else if (ftp.login_fail > 30)
+        else if (ftp.login_fail > 100)
         {
           if(ftp.ftp_brute_force == false)
           {
             cout << "[ALERT] FTP BRUTE FORCE DETECTED (Total Limit): " << endl;
             ftp.ftp_brute_force = true;
+          }
+
+          // IPS
+          if(ftp.blocked == false)
+          {
+            if(mode && ftp.ftp_brute_force)
+            {
+              string block_command = "sudo iptables -A INPUT -s " + ftp.ip + " -j DROP";
+              if (system(block_command.c_str()) == 0)
+              {
+                cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ftp.ip << endl;
+              }
+              else
+              {
+                cerr << "[ACTION FAILED] COULD NOT EXECUTE IPTABLES COMMAND." << endl;
+              }
+            }
+            ftp.blocked = true;
           }
         }
       }
@@ -373,7 +457,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo)
       vector<EventLog> even_log;
       evenMap[client_ip] = even_log;
     }
-
 
     clean_flow(flowMap, FLOW_TIMEOUT);
     clean_event_log(evenMap, IP_TIMEOUT);

@@ -21,6 +21,7 @@ struct SSH_State
     int login_fail = 0;
 
     bool ssh_brute_force = false;
+    bool blocked = false;
 };
 
 void clean_ssh_state(unordered_map<string, SSH_State> &sshMap, chrono::seconds timeout) {

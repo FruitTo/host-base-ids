@@ -121,9 +121,9 @@ int main()
   // Sniffer
   for (NetworkConfig &conf : configuredInterfaces)
   {
-    task.push_back(pool.submit_task([conf, conninfo]() mutable {
+    task.push_back(pool.submit_task([conf, conninfo, mode]() mutable {
       try {
-        sniff(conf, conninfo);
+        sniff(conf, conninfo, mode);
       } catch (const exception& e) {
         cout << string("sniff exception: ") + e.what();
       }

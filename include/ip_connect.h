@@ -19,6 +19,7 @@ struct IP_Connect
 
   bool port_scan = false;
   bool syn_flood = false;
+  bool blocked = false;
 };
 
 void clean_ip_connect(unordered_map<string, IP_Connect> ipPortMap, chrono::seconds timeout) {

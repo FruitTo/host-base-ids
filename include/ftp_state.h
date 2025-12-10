@@ -19,6 +19,7 @@ struct FTP_State
   int login_fail = 0;
 
   bool ftp_brute_force = false;
+  bool blocked = false;
 };
 
 void clean_ftp_state(unordered_map<string, FTP_State> &ftpMap, chrono::seconds timeout)
