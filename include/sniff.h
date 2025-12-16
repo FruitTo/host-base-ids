@@ -12,6 +12,7 @@
 #include <sstream>
 #include <iostream>
 #include <ctime>
+#include <unordered_set>
 
 #include <pqxx/pqxx>
 #include <tins/tins.h>
@@ -28,6 +29,7 @@
 #include "./ssh_state.h"
 #include "./ftp_state.h"
 #include "./ip_connect.h"
+#include "./udp_connect.h"
 
 using namespace Tins;
 using namespace std;
@@ -42,6 +44,7 @@ const chrono::seconds IP_TIMEOUT = chrono::seconds(10);
 const chrono::seconds SSH_TIMEOUT = chrono::seconds(30);
 const chrono::seconds FTP_TIMEOUT = chrono::seconds(30);
 const chrono::seconds IP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
+const chrono::seconds UDP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
 
 const string BTMP_PATH = "/var/log/btmp";
 const string VSFTPD_LOG_PATH = "/var/log/vsftpd.log";
@@ -64,16 +67,13 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   unordered_map<string, SSH_State> sshMap;
   unordered_map<string, FTP_State> ftpMap;
   unordered_map<string, IP_Connect> ipConnectMap;
+  unordered_map<string, UDP_Connect> udpConnectMap;
 
   // Port List
-  vector<uint16_t> portList;
+  std::unordered_set<uint16_t> portList;
 
   auto merge_ports = [&](const std::vector<uint16_t>& source_ports) {
-    portList.insert(
-        portList.end(),
-        source_ports.begin(),
-        source_ports.end()
-    );
+    portList.insert(source_ports.begin(), source_ports.end());
   };
 
   if(conf.HTTP_SERVERS) merge_ports(conf.HTTP_PORTS);
@@ -227,10 +227,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
       {
         if (TCP* tcp = pdu->find_pdu<TCP>())
         {
-          for(auto i : portList)
-          {
-            if(tcp->flags() == TCP::SYN && tcp->dport() == i) ip_connect.syn_count++;
-          }
+          if (tcp->flags() == TCP::SYN && portList.count(tcp->dport()))
+         {
+            ip_connect.syn_count++;
+         }
         }
       }
 
@@ -271,7 +271,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         }
       }
 
-      clean_ip_connect(ipConnectMap, IP_PORT_CONNECT_TIMEOUT);
     }
     else
     {
@@ -286,11 +285,63 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
 
       if (TCP* tcp = pdu->find_pdu<TCP>())
       {
-        for(auto i : portList)
+        if (tcp->flags() == TCP::SYN && portList.count(tcp->dport()))
         {
-          if(tcp->flags() == TCP::SYN && tcp->dport() == i) ip_connect.syn_count++;
+          ip_connect.syn_count++;
         }
-        ipConnectMap[ip_key] = ip_connect;
+      }
+      ipConnectMap[ip_key] = ip_connect;
+    }
+
+    // UDP Connect
+    if(UDP* udp = pdu->find_pdu<UDP>())
+    {
+      auto it_ip = ipConnectMap.find(ip_key);
+      if(it_ip != ipConnectMap.end());
+
+      auto it_udp = udpConnectMap.find(ip_key);
+      if(it_udp != udpConnectMap.end())
+      {
+        // Update UDP Map
+        UDP_Connect& udp_connect = it_udp->second;
+
+        udp_connect.packet_count++;
+        udp_connect.last_seen = SystemClock::now();
+
+        uint16_t port_connect = define_port_connect(pdu, ip_key);
+        auto it = find(udp_connect.port_list.begin(), udp_connect.port_list.end(), port_connect);
+        if(it == udp_connect.port_list.end())
+        {
+          udp_connect.port_list.push_back(port_connect);
+        }
+
+        if (!portList.count(udp->dport())){
+          udp_connect.unreach_count++;
+        }
+
+        if(udp_connect.unreach_count > 30 && udp_connect.udp_flood == false){
+          cout << "[ALERT] UDP Flood DETECTED" << endl;
+          udp_connect.udp_flood = true;
+        }
+      }
+      else
+      {
+        // Create UDP Map
+        UDP_Connect udp_connect;
+        udp_connect.ip = ip_key;
+        udp_connect.flow_key = flow_key;
+        udp_connect.first_seen = SystemClock::now();
+        udp_connect.last_seen = SystemClock::now();
+        udp_connect.packet_count = 1;
+
+        uint16_t port_connect = define_port_connect(pdu, ip_key);
+        udp_connect.port_list.push_back(port_connect);
+
+        if (!portList.count(udp->dport())){
+          udp_connect.unreach_count++;
+        }
+
+        udpConnectMap[ip_key] = udp_connect;
       }
     }
 
@@ -448,7 +499,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
       }
     }
 
-
     // EvenLog
     auto it_even = evenMap.find(client_ip);
     if(it_even == evenMap.end())
@@ -462,6 +512,8 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
     clean_event_log(evenMap, IP_TIMEOUT);
     clean_ssh_state(sshMap, SSH_TIMEOUT);
     clean_ftp_state(ftpMap, FTP_TIMEOUT);
+    clean_ip_connect(ipConnectMap, IP_PORT_CONNECT_TIMEOUT);
+    clean_udp_connect(udpConnectMap, UDP_PORT_CONNECT_TIMEOUT);
     return true;
   });
 }

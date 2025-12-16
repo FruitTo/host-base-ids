@@ -22,7 +22,7 @@ struct IP_Connect
   bool blocked = false;
 };
 
-void clean_ip_connect(unordered_map<string, IP_Connect> ipPortMap, chrono::seconds timeout) {
+void clean_ip_connect(unordered_map<string, IP_Connect> &ipPortMap, chrono::seconds timeout) {
     auto now = chrono::system_clock::now();
 
     for (auto it = ipPortMap.begin(); it != ipPortMap.end();)
