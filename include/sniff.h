@@ -188,6 +188,14 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         if(tcp->flags() == 0)
         {
           cout << "[ALERT] TCP NULL SCAN DETECTED" << endl;
+        } 
+        else if (tcp->flags() == 63) 
+        {
+          cout << "[ALERT] FULL XMAS SCAN DETECTED" << endl;
+        }
+        else if (tcp->flags() == 41) 
+        {
+          cout << "[ALERT] XMAS SCAN DETECTED" << endl;
         }
         else if(tcp->flags() == TCP::SYN)
         {
