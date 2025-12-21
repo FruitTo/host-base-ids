@@ -30,6 +30,7 @@
 #include "./ftp_state.h"
 #include "./ip_connect.h"
 #include "./udp_connect.h"
+#include "./icmp_connect.h"
 
 using namespace Tins;
 using namespace std;
@@ -45,6 +46,7 @@ const chrono::seconds SSH_TIMEOUT = chrono::seconds(30);
 const chrono::seconds FTP_TIMEOUT = chrono::seconds(30);
 const chrono::seconds IP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
 const chrono::seconds UDP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
+const chrono::seconds ICMP_CONNECT_TIMEOUT = chrono::seconds(30);
 
 const string BTMP_PATH = "/var/log/btmp";
 const string VSFTPD_LOG_PATH = "/var/log/vsftpd.log";
@@ -68,6 +70,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   unordered_map<string, FTP_State> ftpMap;
   unordered_map<string, IP_Connect> ipConnectMap;
   unordered_map<string, UDP_Connect> udpConnectMap;
+  unordered_map<string, ICMP_Connect> icmpConnectMap;
 
   // Port List
   std::unordered_set<uint16_t> portList;
@@ -130,13 +133,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
        sport = udp->sport();
        dport = udp->dport();
        flow_key = define_key(ip, sport, dport);
-    }
-    // ICMP
-    else if(ICMP* icmp = pdu->find_pdu<ICMP>())
-    {
-      sport = 0;
-      dport = 0;
-      return true;
     }
 
     // Flow
@@ -209,6 +205,41 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
 
     string ip_key = define_ip_key(ip, conf);
 
+    // ICMP Connect
+    if(ICMP* icmp = pdu->find_pdu<ICMP>())
+    {
+      auto it_icmp = icmpConnectMap.find(ip_key);
+      if(it_icmp != icmpConnectMap.end())
+      {
+        ICMP_Connect& icmp_connect = it_icmp->second;
+        icmp_connect.packet_count++;
+        icmp_connect.last_seen = SystemClock::now();
+        
+        auto duration = icmp_connect.last_seen - icmp_connect.first_seen;
+        auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
+        if(elapsed_seconds.count() > 0.0)
+        {
+          double pps = icmp_connect.packet_count / elapsed_seconds.count();
+          if( pps > 100.0 && icmp_connect.icmp_flood == false) 
+          {
+            cout << "[ALERT] ICMP Flood DETECTED" << endl;
+            icmp_connect.icmp_flood = true;
+          }
+        }
+      } 
+      else 
+      {
+        ICMP_Connect icmp_connect;
+        icmp_connect.ip = ip_key;
+        icmp_connect.flow_key = flow_key;
+        icmp_connect.first_seen = SystemClock::now();
+        icmp_connect.last_seen = SystemClock::now();
+        icmp_connect.packet_count++;
+
+        icmpConnectMap[ip_key] = icmp_connect;
+      }
+    }
+
     // IP Connect
     auto it_ip = ipConnectMap.find(ip_key);
     if(it_ip != ipConnectMap.end())
@@ -230,6 +261,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           if (tcp->flags() == TCP::SYN && portList.count(tcp->dport()))
          {
             ip_connect.syn_count++;
+            cout << ip_connect.syn_count << endl;
          }
         }
       }
@@ -315,11 +347,13 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           udp_connect.port_list.push_back(port_connect);
         }
 
-        if (!portList.count(udp->dport())){
+        if (!portList.count(udp->dport()))
+        {
           udp_connect.unreach_count++;
         }
 
-        if(udp_connect.unreach_count > 30 && udp_connect.udp_flood == false){
+        if(udp_connect.unreach_count > 30 && udp_connect.udp_flood == false)
+        {
           cout << "[ALERT] UDP Flood DETECTED (Random Port)" << endl;
           udp_connect.udp_flood = true;
         }
@@ -523,6 +557,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
     clean_ftp_state(ftpMap, FTP_TIMEOUT);
     clean_ip_connect(ipConnectMap, IP_PORT_CONNECT_TIMEOUT);
     clean_udp_connect(udpConnectMap, UDP_PORT_CONNECT_TIMEOUT);
+    clean_icmp_connect(icmpConnectMap, ICMP_CONNECT_TIMEOUT);
     return true;
   });
 }
