@@ -320,8 +320,17 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         }
 
         if(udp_connect.unreach_count > 30 && udp_connect.udp_flood == false){
-          cout << "[ALERT] UDP Flood DETECTED" << endl;
+          cout << "[ALERT] UDP Flood DETECTED (Random Port)" << endl;
           udp_connect.udp_flood = true;
+        }
+
+        auto duration = udp_connect.last_seen - udp_connect.first_seen;
+        auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
+        if(elapsed_seconds.count() > 0){
+          if((udp_connect.packet_count / elapsed_seconds.count()) > 10000 && udp_connect.udp_flood == false) {
+            cout << "[ALERT] UDP Flood DETECTED (Hight PPS)" << endl;
+            udp_connect.udp_flood = true;
+          }
         }
       }
       else
