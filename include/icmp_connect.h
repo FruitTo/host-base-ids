@@ -11,7 +11,6 @@ using namespace std;
 struct ICMP_Connect
 {
   string ip;
-  string flow_key;
   chrono::system_clock::time_point first_seen;
   chrono::system_clock::time_point last_seen;
   long int packet_count = 0;

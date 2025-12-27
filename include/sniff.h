@@ -17,12 +17,12 @@
 #include <pqxx/pqxx>
 #include <tins/tins.h>
 #include <tins/tcp.h>
+#include <tins/tcp_ip/stream_follower.h>
 
 #include "./interface.h"
 #include "./date.h"
 #include "./network_config.h"
 #include "./write_json.h"
-#include "./flow.h"
 #include "./define_protocol.h"
 #include "./define_key.h"
 #include "./event_log.h"
@@ -31,15 +31,20 @@
 #include "./ip_connect.h"
 #include "./udp_connect.h"
 #include "./icmp_connect.h"
+#include "./tcp_stream_callback.h"
+
+using namespace std;
 
 using namespace Tins;
-using namespace std;
-using namespace chrono;
-
 using Tins::TCP;
+using Tins::TCPIP::Stream;
+using Tins::TCPIP::StreamFollower;
+
+using namespace chrono;
 using Clock = chrono::steady_clock;
 using SystemClock = chrono::system_clock;
 
+// Timeout
 const chrono::seconds FLOW_TIMEOUT = chrono::seconds(10);
 const chrono::seconds IP_TIMEOUT = chrono::seconds(10);
 const chrono::seconds SSH_TIMEOUT = chrono::seconds(30);
@@ -48,9 +53,9 @@ const chrono::seconds IP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
 const chrono::seconds UDP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
 const chrono::seconds ICMP_CONNECT_TIMEOUT = chrono::seconds(30);
 
+// Path
 const string BTMP_PATH = "/var/log/btmp";
 const string VSFTPD_LOG_PATH = "/var/log/vsftpd.log";
-
 
 inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
 {
@@ -64,7 +69,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   auto writer = make_unique<PacketWriter>(currentPath + conf.NAME + "_" + currentDay + "_" + currentTime + ".pcap", DataLinkType<EthernetII>());
 
   // Map
-  unordered_map<string, Flow> flowMap;
   unordered_map<string, vector<EventLog>> evenMap;
   unordered_map<string, SSH_State> sshMap;
   unordered_map<string, FTP_State> ftpMap;
@@ -73,9 +77,9 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   unordered_map<string, ICMP_Connect> icmpConnectMap;
 
   // Port List
-  std::unordered_set<uint16_t> portList;
+  unordered_set<uint16_t> portList;
 
-  auto merge_ports = [&](const std::vector<uint16_t>& source_ports) {
+  auto merge_ports = [&](const vector<uint16_t>& source_ports) {
     portList.insert(source_ports.begin(), source_ports.end());
   };
 
@@ -85,6 +89,11 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   if(conf.TELNET_SERVERS) merge_ports(conf.TELNET_PORTS);
   if(conf.SIP_SERVERS) merge_ports(conf.SIP_PORTS);
 
+  // Stream Manager
+  StreamFollower follower;
+  follower.new_stream_callback(&on_new_stream);
+  follower.stream_termination_callback(&on_stream_terminated);
+
   // Sniffer
   SnifferConfiguration cfg;
   cfg.set_promisc_mode(true);
@@ -92,6 +101,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   sniffer.sniff_loop([&](Packet &pkt)
   {
     PDU* pdu = pkt.pdu();
+    follower.process_packet(pkt);
     if (!pdu) return true;
     IP &ip = pdu->rfind_pdu<IP>();
 
@@ -113,102 +123,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
 
     string client_ip = (ip.src_addr() != conf.IP) ? ip.src_addr().to_string() : ip.dst_addr().to_string();
 
-    // Defined Flow Key (src_addr + src_port + dst_addr + dst_port + tcp | udp | icmp)
-    string flow_key;
-    uint16_t sport;
-    uint16_t dport;
     string protocol = "";
 
     // TCP
     if (TCP* tcp = pdu->find_pdu<TCP>())
     {
-       sport = tcp->sport();
-       dport = tcp->dport();
-       flow_key = define_key(ip, sport, dport);
        protocol = tcp_define_protocol(conf, tcp);
-    }
-    // UDP
-    else if(UDP* udp = pdu->find_pdu<UDP>())
-    {
-       sport = udp->sport();
-       dport = udp->dport();
-       flow_key = define_key(ip, sport, dport);
-    }
-
-    // Flow
-    auto it_flow = flowMap.find(flow_key);
-    if(it_flow != flowMap.end())
-    {
-      // Update Flow
-      Flow& flow = it_flow->second;
-      flow.count++;
-      flow.last_seen = Clock::now();
-
-      // Establish
-      if(TCP* tcp = pdu->find_pdu<TCP>())
-      {
-        if(flow.count == 2 && flow.sync == true)
-        {
-          if(tcp->flags() == (TCP::SYN | TCP::ACK))
-          {
-            flow.sync_ack = true;
-          }
-        }
-        else if(flow.count == 3 && flow.sync_ack == true)
-        {
-          if(tcp->flags() == TCP::ACK)
-          {
-            flow.ack = true;
-            if(flow.sync && flow.sync_ack && flow.ack)
-            {
-              flow.established = true;
-            }
-          }
-        }
-      }
-
-      flowMap[flow_key] = flow;
-    }
-    else
-    {
-      // Create Flow
-      Flow flow;
-      flow.key = flow_key;
-      flow.src_addr = ip.src_addr();
-      flow.sport = sport;
-      flow.dst_addr = ip.dst_addr();
-      flow.dport = dport;
-      flow.proto = protocol;
-
-      flow.create_at = Clock::now();
-      flow.last_seen = Clock::now();
-
-      if (TCP* tcp = pdu->find_pdu<TCP>())
-      {
-        if(tcp->flags() == 0)
-        {
-          cout << "[ALERT] TCP NULL SCAN DETECTED" << endl;
-        } 
-        else if (tcp->flags() == 63) 
-        {
-          cout << "[ALERT] FULL XMAS SCAN DETECTED" << endl;
-        }
-        else if (tcp->flags() == 41) 
-        {
-          cout << "[ALERT] XMAS SCAN DETECTED" << endl;
-        }
-        else if(tcp->flags() == TCP::SYN)
-        {
-          flow.sync = true;
-        }
-      }
-      else if(UDP* udp = pdu->find_pdu<UDP>())
-      {
-
-      }
-
-      flow.count++;
-      flowMap[flow_key] = flow;
     }
 
     string ip_key = define_ip_key(ip, conf);
@@ -222,24 +142,23 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         ICMP_Connect& icmp_connect = it_icmp->second;
         icmp_connect.packet_count++;
         icmp_connect.last_seen = SystemClock::now();
-        
+
         auto duration = icmp_connect.last_seen - icmp_connect.first_seen;
         auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
         if(elapsed_seconds.count() > 0.0)
         {
           double pps = icmp_connect.packet_count / elapsed_seconds.count();
-          if( pps > 100.0 && icmp_connect.icmp_flood == false) 
+          if( pps > 100.0 && icmp_connect.icmp_flood == false)
           {
             cout << "[ALERT] ICMP Flood DETECTED" << endl;
             icmp_connect.icmp_flood = true;
           }
         }
-      } 
-      else 
+      }
+      else
       {
         ICMP_Connect icmp_connect;
         icmp_connect.ip = ip_key;
-        icmp_connect.flow_key = flow_key;
         icmp_connect.first_seen = SystemClock::now();
         icmp_connect.last_seen = SystemClock::now();
         icmp_connect.packet_count++;
@@ -317,7 +236,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
       // Create IP Connect Map
       IP_Connect ip_connect;
       ip_connect.ip = ip_key;
-      ip_connect.flow_key = flow_key;
       ip_connect.first_seen = SystemClock::now();
       ip_connect.last_seen = SystemClock::now();
       uint16_t port_connect = define_port_connect(pdu, ip_key);
@@ -380,7 +298,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         // Create UDP Map
         UDP_Connect udp_connect;
         udp_connect.ip = ip_key;
-        udp_connect.flow_key = flow_key;
         udp_connect.first_seen = SystemClock::now();
         udp_connect.last_seen = SystemClock::now();
         udp_connect.packet_count = 1;
@@ -559,7 +476,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
       evenMap[client_ip] = even_log;
     }
 
-    clean_flow(flowMap, FLOW_TIMEOUT);
     clean_event_log(evenMap, IP_TIMEOUT);
     clean_ssh_state(sshMap, SSH_TIMEOUT);
     clean_ftp_state(ftpMap, FTP_TIMEOUT);

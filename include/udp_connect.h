@@ -11,7 +11,6 @@ using namespace std;
 struct UDP_Connect
 {
   string ip;
-  string flow_key;
   chrono::system_clock::time_point first_seen;
   chrono::system_clock::time_point last_seen;
   vector<uint16_t> port_list;
