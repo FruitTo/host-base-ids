@@ -91,7 +91,9 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
 
   // Stream Manager
   StreamFollower follower;
+  // Callbacks for new streams
   follower.new_stream_callback(&on_new_stream);
+  // Callbacks for terminated streams
   follower.stream_termination_callback(&on_stream_terminated);
 
   // Sniffer
@@ -101,7 +103,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   sniffer.sniff_loop([&](Packet &pkt)
   {
     PDU* pdu = pkt.pdu();
-    follower.process_packet(pkt);
     if (!pdu) return true;
     IP &ip = pdu->rfind_pdu<IP>();
 
@@ -122,16 +123,20 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
     writer->write(pkt);
 
     string client_ip = (ip.src_addr() != conf.IP) ? ip.src_addr().to_string() : ip.dst_addr().to_string();
-
     string protocol = "";
 
     // TCP
     if (TCP* tcp = pdu->find_pdu<TCP>())
     {
-       protocol = tcp_define_protocol(conf, tcp);
+      protocol = tcp_define_protocol(conf, tcp);
     }
 
     string ip_key = define_ip_key(ip, conf);
+
+    if (protocol == "http")
+    {
+      follower.process_packet(pkt);
+    }
 
     // ICMP Connect
     if(ICMP* icmp = pdu->find_pdu<ICMP>())
@@ -152,6 +157,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           {
             cout << "[ALERT] ICMP Flood DETECTED" << endl;
             icmp_connect.icmp_flood = true;
+          }
+          else
+          {
+            return true;
           }
         }
       }
@@ -188,7 +197,6 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           if (tcp->flags() == TCP::SYN && portList.count(tcp->dport()))
          {
             ip_connect.syn_count++;
-            cout << ip_connect.syn_count << endl;
          }
         }
       }
@@ -202,6 +210,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           cout << "[ALERT] PORT SCAN DETECTED " << endl;
           ip_connect.port_scan = true;
         }
+        else
+        {
+          return true;
+        }
       }
 
       if (ip_connect.syn_count > 80 && elapsed_seconds <= chrono::seconds(30))
@@ -210,6 +222,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] SYN FLOOD DETECT (IP : "<< ip_connect.ip << " )" << endl;
           ip_connect.syn_flood = true;
+        }
+        else
+        {
+          return true;
         }
 
         // IPS
@@ -283,6 +299,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           cout << "[ALERT] UDP Flood DETECTED (Random Port)" << endl;
           udp_connect.udp_flood = true;
         }
+        else
+        {
+          return true;
+        }
 
         auto duration = udp_connect.last_seen - udp_connect.first_seen;
         auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
@@ -290,6 +310,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           if((udp_connect.packet_count / elapsed_seconds.count()) > 10000 && udp_connect.udp_flood == false) {
             cout << "[ALERT] UDP Flood DETECTED (Hight PPS)" << endl;
             udp_connect.udp_flood = true;
+          }
+          else
+          {
+            return true;
           }
         }
       }
@@ -332,6 +356,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
             cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
             ssh.ssh_brute_force = true;
           }
+          else
+          {
+            return true;
+          }
 
           // IPS
           if(ssh.blocked == false){
@@ -356,6 +384,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           {
             cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
             ssh.ssh_brute_force = true;
+          }
+          else
+          {
+            return true;
           }
 
           // IPS
@@ -408,6 +440,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
             cout << "[ALERT] FTP BRUTE FORCE DETECTED (High Rate): " << endl;
             ftp.ftp_brute_force = true;
           }
+          else
+          {
+            return true;
+          }
 
           // IPS
           if(ftp.blocked == false)
@@ -433,6 +469,10 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           {
             cout << "[ALERT] FTP BRUTE FORCE DETECTED (Total Limit): " << endl;
             ftp.ftp_brute_force = true;
+          }
+          else
+          {
+            return true;
           }
 
           // IPS
