@@ -4,15 +4,15 @@
 #include <tins/tcp_ip/stream_follower.h>
 #include <tins/tins.h>
 #include <regex>
+#include <string>
+#include <iostream>
 
 using namespace Tins;
 using namespace std;
 using Tins::TCPIP::Stream;
 using Tins::TCPIP::StreamFollower;
 
-// Broken Access Control Patterns
-regex path_traversal_regex(R"(((\.|%2e){2,}(\/|\\|%2f|%5c)){3,})");
-regex lfi_regex(R"(/etc/(passwd|shadow|hosts)|[c-zc-z]:\\windows)");
+
 
 // Forward (client -> server)
 void on_client_data(Stream& stream) {
@@ -22,14 +22,47 @@ void on_client_data(Stream& stream) {
   string lower_data = data;
   transform(lower_data.begin(), lower_data.end(), lower_data.begin(), ::tolower);
 
+  // Broken Access Control
+  regex path_traversal_regex(R"(((\.|%2e){2,}(\/|\\|%2f|%5c)){3,})");
   if (regex_search(lower_data, path_traversal_regex))
   {
     cout << "[ALERT] Directory Traversal Attack Detected! (Pattern: ../../../)" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
   }
+  regex lfi_regex(R"(/etc/(passwd|shadow|hosts)|[c-zc-z]:\\windows)");
   if (regex_search(lower_data, lfi_regex))
   {
     cout << "[ALERT] System File Access Attempt (LFI) Detected!" << endl;
+    cout << "From IP: " << stream.client_addr_v4() << endl;
+  }
+
+  // SQL Injection
+  regex sql_comment(R"((--[ \t'"+])|(/\*.*\*/(?!\*)))");    // Comment
+  if (regex_search(lower_data, sql_comment))
+  {
+    cout << lower_data << endl;
+    cout << "[ALERT] SQL Comment Injection" << endl;
+    cout << "From IP: " << stream.client_addr_v4() << endl;
+  }
+  regex and_or_pattern(R"(\b(and|or)(?:\s+|/\*.*?\*/|['"(])+\w*['"]?\s*(?:!=|>=|<=|=|>|<|like)+\s*['"]?\w*['")]?)");
+  if (regex_search(lower_data, and_or_pattern))
+  {
+    cout << lower_data << endl;
+    cout << "[ALERT] SQL AND, OR Injection" << endl;
+    cout << "From IP: " << stream.client_addr_v4() << endl;
+  }
+  regex union_pattern(R"(\bunion(\s+|/\*.*?\*/|\()+?(all(\s+|/\*.*?\*/)+)?select\b)");              // UNION
+  if (regex_search(lower_data, union_pattern))
+  {
+    cout << lower_data << endl;
+    cout << "[ALERT] SQL Union Injection" << endl;
+    cout << "From IP: " << stream.client_addr_v4() << endl;
+  }
+  regex call_func(R"(\b(sleep|benchmark|extractvalue|updatexml|load_file|pg_sleep|user|database|version|schema|current_user|system_user|group_concat|concat_ws|hex|unhex|geometrycollection|polygon|multipoint|linestring|pg_read_file|pg_ls_dir|xp_cmdshell)\s*\(.*\))");              // UNION
+  if (regex_search(lower_data, call_func))
+  {
+    cout << lower_data << endl;
+    cout << "[ALERT] SQL Call DB Function" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
   }
 }
