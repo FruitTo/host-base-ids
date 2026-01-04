@@ -2,7 +2,7 @@
 
 echo "[*] install dependencies"
 sudo apt update
-sudo apt install -y build-essential cmake git libpcap-dev libssl-dev libtins-dev libpqxx-dev
+sudo apt install -y build-essential cmake git libpcap-dev libssl-dev libtins-dev libpqxx-dev libcurl4-openssl-dev
 
 # json library
 git clone https://github.com/nlohmann/json.git /tmp/json
