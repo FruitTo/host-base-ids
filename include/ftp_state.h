@@ -43,14 +43,16 @@ void clean_ftp_state(unordered_map<string, FTP_State> &ftpMap, chrono::seconds t
   }
 }
 
-time_t convert_log_time_to_time_t(const std::string& time_str) {
-    std::tm t{};
-    std::istringstream ss(time_str);
+time_t convert_log_time_to_time_t(const string &time_str)
+{
+  tm t{};
+  istringstream ss(time_str);
 
-    if (ss >> std::get_time(&t, "%a %b %d %H:%M:%S %Y")) {
-        return std::mktime(&t);
-    }
-    return 0;
+  if (ss >> get_time(&t, "%a %b %d %H:%M:%S %Y"))
+  {
+    return mktime(&t);
+  }
+  return 0;
 }
 
 void ftp_read_fail_state(string path, FTP_State &ftp)
@@ -62,29 +64,34 @@ void ftp_read_fail_state(string path, FTP_State &ftp)
     return;
   }
   string line;
-    regex pattern(R"ftp(FAIL LOGIN: Client "(?:::ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")ftp");
-    smatch matches;
+  regex pattern(R"ftp(FAIL LOGIN: Client "(?:::ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")ftp");
+  smatch matches;
 
-    time_t start_time = chrono::system_clock::to_time_t(ftp.first_seen);
-    auto now_system = chrono::system_clock::now();
-    int count = 0;
-    while (getline(file, line)) {
-        if (line.length() < 15) continue;
-        string time_str = line.substr(0, 24);
-        time_t log_time_sec = convert_log_time_to_time_t(time_str);
-        if (log_time_sec < start_time) {
-            continue;
-        }
-        if (regex_search(line, matches, pattern)) {
-            string ip = matches[1];
-
-            if (ftp.ip == ip) {
-              count += 1;
-            }
-        }
+  time_t start_time = chrono::system_clock::to_time_t(ftp.first_seen);
+  auto now_system = chrono::system_clock::now();
+  int count = 0;
+  while (getline(file, line))
+  {
+    if (line.length() < 15)
+      continue;
+    string time_str = line.substr(0, 24);
+    time_t log_time_sec = convert_log_time_to_time_t(time_str);
+    if (log_time_sec < start_time)
+    {
+      continue;
     }
-    ftp.login_fail = count;
-    file.close();
+    if (regex_search(line, matches, pattern))
+    {
+      string ip = matches[1];
+
+      if (ftp.ip == ip)
+      {
+        count += 1;
+      }
+    }
+  }
+  ftp.login_fail = count;
+  file.close();
 }
 
 #endif

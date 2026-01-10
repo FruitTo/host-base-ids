@@ -44,6 +44,7 @@ using namespace chrono;
 using Clock = chrono::steady_clock;
 using SystemClock = chrono::system_clock;
 
+// ********************************* MUST CONFIG BEFORE USING *********************************
 // Timeout
 const chrono::seconds FLOW_TIMEOUT = chrono::seconds(10);
 const chrono::seconds IP_TIMEOUT = chrono::seconds(10);
@@ -79,15 +80,21 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   // Port List
   unordered_set<uint16_t> portList;
 
-  auto merge_ports = [&](const vector<uint16_t>& source_ports) {
+  auto merge_ports = [&](const vector<uint16_t> &source_ports)
+  {
     portList.insert(source_ports.begin(), source_ports.end());
   };
 
-  if(conf.HTTP_SERVERS) merge_ports(conf.HTTP_PORTS);
-  if(conf.SSH_SERVERS) merge_ports(conf.SSH_PORTS);
-  if(conf.FTP_SERVERS) merge_ports(conf.FTP_PORTS);
-  if(conf.TELNET_SERVERS) merge_ports(conf.TELNET_PORTS);
-  if(conf.SIP_SERVERS) merge_ports(conf.SIP_PORTS);
+  if (conf.HTTP_SERVERS)
+    merge_ports(conf.HTTP_PORTS);
+  if (conf.SSH_SERVERS)
+    merge_ports(conf.SSH_PORTS);
+  if (conf.FTP_SERVERS)
+    merge_ports(conf.FTP_PORTS);
+  if (conf.TELNET_SERVERS)
+    merge_ports(conf.TELNET_PORTS);
+  if (conf.SIP_SERVERS)
+    merge_ports(conf.SIP_PORTS);
 
   // Stream Manager
   StreamFollower follower;
@@ -101,7 +108,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   cfg.set_promisc_mode(true);
   Sniffer sniffer(conf.NAME, cfg);
   sniffer.sniff_loop([&](Packet &pkt)
-  {
+                     {
     PDU* pdu = pkt.pdu();
     if (!pdu) return true;
     IP &ip = pdu->rfind_pdu<IP>();
@@ -522,8 +529,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
     clean_ip_connect(ipConnectMap, IP_PORT_CONNECT_TIMEOUT);
     clean_udp_connect(udpConnectMap, UDP_PORT_CONNECT_TIMEOUT);
     clean_icmp_connect(icmpConnectMap, ICMP_CONNECT_TIMEOUT);
-    return true;
-  });
+    return true; });
 }
 
 #endif

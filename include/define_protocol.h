@@ -56,36 +56,37 @@ string tcp_define_protocol(NetworkConfig &conf, Tins::TCP *tcp)
   return "";
 }
 
-uint16_t define_port_connect(PDU* pdu, const std::string& ip_key)
+uint16_t define_port_connect(PDU *pdu, const string &ip_key)
 {
-    if (!pdu) return 0;
-
-    if (IP* ip = pdu->find_pdu<IP>())
-    {
-        if (TCP* tcp = pdu->find_pdu<TCP>())
-        {
-            if (ip->src_addr().to_string() == ip_key)
-            {
-              return tcp->dport();
-            }
-            else
-            {
-              return tcp->sport();
-            }
-        }
-        else if (UDP* udp = pdu->find_pdu<UDP>())
-        {
-            if (ip->src_addr().to_string() == ip_key)
-            {
-              return udp->dport();
-            }
-            else
-            {
-              return udp->sport();
-            }
-        }
-    }
+  if (!pdu)
     return 0;
+
+  if (IP *ip = pdu->find_pdu<IP>())
+  {
+    if (TCP *tcp = pdu->find_pdu<TCP>())
+    {
+      if (ip->src_addr().to_string() == ip_key)
+      {
+        return tcp->dport();
+      }
+      else
+      {
+        return tcp->sport();
+      }
+    }
+    else if (UDP *udp = pdu->find_pdu<UDP>())
+    {
+      if (ip->src_addr().to_string() == ip_key)
+      {
+        return udp->dport();
+      }
+      else
+      {
+        return udp->sport();
+      }
+    }
+  }
+  return 0;
 }
 
 #endif

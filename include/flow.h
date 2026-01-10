@@ -40,11 +40,14 @@ void clean_flow(unordered_map<string, Flow> &flowMap, chrono::seconds timeout)
     Flow &flow = it->second;
 
     Clock::duration duration = flow.last_seen - flow.create_at;
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(duration);
+    auto elapsed = chrono::duration_cast<chrono::seconds>(duration);
 
-    if (elapsed > timeout) {
+    if (elapsed > timeout)
+    {
       it = flowMap.erase(it);
-    } else {
+    }
+    else
+    {
       ++it;
     }
   }
