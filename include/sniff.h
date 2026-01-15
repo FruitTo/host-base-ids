@@ -33,6 +33,7 @@
 #include "./udp_connect.h"
 #include "./icmp_connect.h"
 #include "./tcp_stream_callback.h"
+#include "./db_connect.h"
 
 using namespace std;
 
@@ -116,18 +117,17 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   {
     stream.client_data_callback([&](Stream &s)
     {
-      on_client_data(s, httpMap);
+      on_client_data(s, httpMap, conn);
     });
 
     stream.server_data_callback([&](Stream &s)
     {
-      on_server_data(s, httpMap);
+      on_server_data(s, httpMap, conn);
     });
 
     stream.auto_cleanup_payloads(true);
     stream.auto_cleanup_client_data(true);
-    stream.auto_cleanup_server_data(true);
-  });
+    stream.auto_cleanup_server_data(true); });
   // Callbacks for terminated streams
   follower.stream_termination_callback([&](Stream &stream, StreamFollower::TerminationReason reason) {});
 
@@ -136,7 +136,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   cfg.set_promisc_mode(true);
   Sniffer sniffer(conf.NAME, cfg);
   sniffer.sniff_loop([&](Packet &pkt)
-  {
+                     {
     PDU *pdu = pkt.pdu();
     if (!pdu) return true;
     IP &ip = pdu->rfind_pdu<IP>();
@@ -157,30 +157,47 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
     }
     writer->write(pkt);
 
-    string client_ip = (ip.src_addr() != conf.IP) ? ip.src_addr().to_string() : ip.dst_addr().to_string();
+    string client_ip = (ip.src_addr().to_string() != conf.IP) ? ip.src_addr().to_string() : ip.dst_addr().to_string();
+    string server_ip = (ip.src_addr().to_string() == conf.IP) ? ip.src_addr().to_string() : ip.dst_addr().to_string();
     string protocol = "";
-    uint16_t sport = 0;
-    uint16_t dport = 0;
+    uint16_t client_port = 0;
+    uint16_t server_port = 0;
 
+    bool to_server = (ip.dst_addr().to_string() == conf.IP);
     // Define Protocol and Port
     if (TCP *tcp = pdu->find_pdu<TCP>())
     {
-      sport = tcp->sport();
-      dport = tcp->dport();
+      if(to_server)
+      {
+        client_port = tcp->sport();
+        server_port = tcp->dport();
+      }
+      else
+      {
+        server_port = tcp->sport();
+        client_port = tcp->dport();
+      }
       protocol = tcp_define_protocol(conf, tcp);
+      if(protocol == "") protocol = "tcp";
     }
     if (UDP *udp = pdu->find_pdu<UDP>())
     {
-      sport = udp->sport();
-      dport = udp->dport();
+      if(to_server)
+      {
+        client_port = udp->sport();
+        server_port = udp->dport();
+      }
+      else
+      {
+        server_port = udp->sport();
+        client_port = udp->dport();
+      }
       protocol = "udp";
     }
     if (ICMP *icmp = pdu->find_pdu<ICMP>())
     {
       protocol = "icmp";
     }
-
-
 
     string ip_key = define_ip_key(ip, conf);
 
@@ -209,6 +226,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           {
             cout << "[ALERT] ICMP Flood DETECTED" << endl;
             icmp_connect.icmp_flood = true;
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "ICMP Flood", "Alert");
           }
           else
           {
@@ -260,17 +278,23 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           ip_connect.syn_count++;
         }
-        if (ip.src_addr().to_string() == ip_key && tcp->flags() == 0)
+        if (ip.src_addr().to_string() == ip_key && tcp->flags() == 0 && ip_connect.null_scan == false)
         {
           cout << "[ALERT] NULL SCAN DETECTED" << endl;
+          ip_connect.null_scan = true;
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan (Null Scan)", "Alert");
         }
-        if (ip.src_addr().to_string() == ip_key && tcp->flags() == 63)
+        if (ip.src_addr().to_string() == ip_key && tcp->flags() == 63 && ip_connect.full_xmas_scan == false)
         {
           cout << "[ALERT] TCP FULL XMAS SCAN DETECTED" << endl;
+          ip_connect.full_xmas_scan= true;
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan (Full Xmas Scan)", "Alert");
         }
-        if (ip.src_addr().to_string() == ip_key && tcp->flags() == 56)
+        if (ip.src_addr().to_string() == ip_key && tcp->flags() == 56 && ip_connect.std_xmas_scan == false)
         {
           cout << "[ALERT] Standard Nmap Xmas Scan DETECTED" << endl;
+          ip_connect.std_xmas_scan = true;
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan (Xmas Scan)", "Alert");
         }
       }
 
@@ -282,6 +306,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] PORT SCAN DETECTED (" << ip_connect.port_list.size() << " ports)" << endl;
           ip_connect.port_scan = true;
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan (Syn Scan)", "Alert");
         }
       }
 
@@ -292,6 +317,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] SYN FLOOD DETECTED (Count: " << ip_connect.syn_count << ")" << endl;
           ip_connect.syn_flood = true;
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Syn Flood", "Alert");
         }
 
         // IPS Block
@@ -358,6 +384,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
       {
         cout << "[ALERT] UDP Flood DETECTED" << endl;
         udp_connect.udp_flood = true;
+        log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Alert");
       }
       else
       {
@@ -372,6 +399,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] UDP Flood DETECTED" << endl;
           udp_connect.udp_flood = true;
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Alert");
         }
         else
         {
@@ -421,6 +449,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
           ssh.ssh_brute_force = true;
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Alert");
         }
         else
         {
@@ -451,6 +480,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
           ssh.ssh_brute_force = true;
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Alert");
         }
         else
         {
@@ -507,26 +537,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] FTP BRUTE FORCE DETECTED" << endl;
           ftp.ftp_brute_force = true;
-          try
-          {
-            auto time_t_val = chrono::system_clock::to_time_t(ftp.last_seen);
-            stringstream ss;
-            ss << put_time(localtime(&time_t_val), "%Y-%m-%d %H:%M:%S");
-            string log_time_str = ss.str();
-
-            pqxx::work txn(conn);
-            txn.exec_params(
-              "INSERT INTO attack_logs (event_time, src_addr, src_port, dst_addr, dst_port, protocol, attack_type, response_type) "
-              "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-              log_time_str, ip.src_addr().to_string(), sport, ip.dst_addr().to_string(), dport, protocol, "FTP Brute Force", "Alert"
-            );
-            txn.commit();
-          }
-          catch (const exception &e)
-          {
-            cerr << "DB Error: " << e.what() << endl;
-            return true;
-          }
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Alert");
         }
         else
         {
@@ -557,26 +568,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] FTP BRUTE FORCE DETECTED (Total Limit): " << endl;
           ftp.ftp_brute_force = true;
-          try
-          {
-            auto time_t_val = chrono::system_clock::to_time_t(ftp.last_seen);
-            stringstream ss;
-            ss << put_time(localtime(&time_t_val), "%Y-%m-%d %H:%M:%S");
-            string log_time_str = ss.str();
-
-            pqxx::work txn(conn);
-            txn.exec_params(
-              "INSERT INTO attack_logs (event_time, src_addr, src_port, dst_addr, dst_port, protocol, attack_type, response_type) "
-              "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-              log_time_str, ip.src_addr().to_string(), sport, ip.dst_addr().to_string(), dport, protocol, "FTP Brute Force", "Alert"
-            );
-            txn.commit();
-          }
-          catch (const exception &e)
-          {
-            cerr << "DB Error: " << e.what() << endl;
-            return true;
-          }
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Alert");
         }
         else
         {

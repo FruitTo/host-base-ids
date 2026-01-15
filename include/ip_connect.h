@@ -17,6 +17,9 @@ struct IP_Connect
   int syn_count = 0;
 
   bool port_scan = false;
+  bool std_xmas_scan = false;
+  bool full_xmas_scan = false;
+  bool null_scan = false;
   bool syn_flood = false;
   bool blocked = false;
 };

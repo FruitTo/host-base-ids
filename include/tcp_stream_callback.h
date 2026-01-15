@@ -10,6 +10,7 @@
 #include <algorithm>
 
 #include "./http_state.h"
+#include "./db_connect.h"
 
 using namespace Tins;
 using namespace std;
@@ -26,8 +27,14 @@ string url_decode(const string &encoded)
 }
 
 // Forward (client -> server)
-void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
+void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap, pqxx::connection &conn)
 {
+  string client_ip = stream.client_addr_v4().to_string();
+  int client_port = stream.client_port();
+  string server_ip = stream.server_addr_v4().to_string();
+  int server_port = stream.server_port();
+  string protocol = "http";
+
   const Stream::payload_type &payload = stream.client_payload();
   string data(payload.begin(), payload.end());
   string decoded_data = url_decode(data);
@@ -42,12 +49,14 @@ void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
   {
     cout << "[ALERT] Directory Traversal Attack Detected! (Pattern: ../../../)" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
+    log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Directory Traversal", "Alert");
   }
   regex lfi_pattern(R"(/etc/(passwd|shadow|hosts)|[c-zc-z]:\\windows)");
   if (regex_search(lower_data, lfi_pattern))
   {
     cout << "[ALERT] System File Access Attempt (LFI) Detected!" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
+    log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "System File Access Attempt (LFI)", "Alert");
   }
 
   // SQL Injection
@@ -57,6 +66,7 @@ void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
     cout << lower_data << endl;
     cout << "[ALERT] SQL Comment Injection" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
+    log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SQL Comment Injection", "Alert");
   }
   regex and_or_pattern(R"(\b(and|or)(?:[\s\+]+|/\*.*?\*/|['"(])+\w*['"]?[\s\+]*(?:!=|>=|<=|=|>|<|like)+[\s\+]*['"]?\w*['")]?)"); // AND OR
   if (regex_search(lower_data, and_or_pattern))
@@ -64,6 +74,7 @@ void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
     cout << lower_data << endl;
     cout << "[ALERT] SQL AND, OR Injection" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
+    log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SQL AND/OR Injection", "Alert");
   }
   regex union_pattern(R"(\bunion([\s\+]+|/\*.*?\*/|\()+?(all([\s\+]+|/\*.*?\*/)+)?select\b)"); // UNION
   if (regex_search(lower_data, union_pattern))
@@ -71,6 +82,7 @@ void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
     cout << lower_data << endl;
     cout << "[ALERT] SQL Union Injection" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
+    log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SQL UNION Injection", "Alert");
   }
   regex call_func_pattern(R"(\b(sleep|benchmark|extractvalue|updatexml|load_file|pg_sleep|user|database|version|schema|current_user|system_user|group_concat|concat_ws|hex|unhex|geometrycollection|polygon|multipoint|linestring|pg_read_file|pg_ls_dir|xp_cmdshell)[\s\+]*\(.*\))"); // Function
   if (regex_search(lower_data, call_func_pattern))
@@ -78,6 +90,7 @@ void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
     cout << lower_data << endl;
     cout << "[ALERT] SQL Call DB Function" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
+    log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SQL Call Function Injection", "Alert");
   }
 
   // Cross Site Scripting
@@ -95,6 +108,7 @@ void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
       cout << "[ALERT] XSS Detected (External Source)!" << endl;
       cout << "Attribute: " << script_attr << endl;
       cout << "From IP: " << stream.client_addr_v4() << endl;
+      log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "XSS External Source", "Alert");
     }
     regex js_payload(R"((document\.cookie|localstorage\.getitem|fetch[\s\+]*\(|document\.location|history\.replacestate|document\.write|window\.location|eval[\s\+]*\(|document\.onkeypress|alert[\s\+]*\(|prompt[\s\+]*\(|confirm[\s\+]*\())");
     if (regex_search(script_body, js_payload))
@@ -102,6 +116,7 @@ void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
       cout << "[ALERT] XSS Detected (Dangerous Payload)!" << endl;
       cout << "Payload: " << script_body << endl;
       cout << "From IP: " << stream.client_addr_v4() << endl;
+      log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "XSS Script Injection", "Alert");
     }
   }
   regex check_event_pattern(R"([\s/\"'+>]+on(load|error|mouseover|focus|click|submit|keypress|change|input|mouseenter|mouseleave)[\s\+]*=[\s\+]*)");
@@ -109,16 +124,17 @@ void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
   {
     cout << "[ALERT] XSS Detected (Event Handler Injection)!" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
+    log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "XSS Event Handler Injection", "Alert");
   }
   regex check_pseudo_protocol(R"((src|href|action|formaction)[\s\+/]*=[\s\+/]*['"]?[\s\+]*(javascript:|vbscript:|data:text\/html))");
   if (regex_search(lower_data, check_pseudo_protocol))
   {
     cout << "[ALERT] XSS Detected (Malicious Protocol)!" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
+    log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "XSS Malicious Protocol Injection", "Alert");
   }
 
   // Brute Force
-  string client_ip = stream.client_addr_v4().to_string();
   regex http_start_pattern(R"(^(get|post|put|delete|head|options|patch)[\s\+]+([^\s]+))");
   smatch url_match;
 
@@ -148,9 +164,14 @@ void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
 }
 
 // Backward (server -> client)
-void on_server_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
+void on_server_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap, pqxx::connection &conn)
 {
   string client_ip = stream.client_addr_v4().to_string();
+  int client_port = stream.client_port();
+  string server_ip = stream.server_addr_v4().to_string();
+  int server_port = stream.server_port();
+  string protocol = "http";
+
   auto it_http = httpMap.find(client_ip);
   if (it_http == httpMap.end())
     return;
@@ -179,6 +200,7 @@ void on_server_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
         cout << "[ALERT] Brute Focrce Attack Detected" << endl;
         cout << "Path : " << pending_path << endl;
         http.http_brute_force = true;
+        log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Web Brute Force", "Alert");
       }
     }
   }
