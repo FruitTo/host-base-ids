@@ -56,6 +56,7 @@ string tcp_define_protocol(NetworkConfig &conf, Tins::TCP *tcp)
   return "";
 }
 
+// Return Service Port (client <-> 80 <-> server)
 uint16_t define_port_connect(PDU *pdu, const string &ip_key)
 {
   if (!pdu)

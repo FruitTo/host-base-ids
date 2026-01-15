@@ -7,6 +7,9 @@
 #include <string>
 #include <iostream>
 #include <curl/curl.h>
+#include <algorithm>
+
+#include "./http_state.h"
 
 using namespace Tins;
 using namespace std;
@@ -23,7 +26,7 @@ string url_decode(const string &encoded)
 }
 
 // Forward (client -> server)
-void on_client_data(Stream &stream)
+void on_client_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
 {
   const Stream::payload_type &payload = stream.client_payload();
   string data(payload.begin(), payload.end());
@@ -113,24 +116,72 @@ void on_client_data(Stream &stream)
     cout << "[ALERT] XSS Detected (Malicious Protocol)!" << endl;
     cout << "From IP: " << stream.client_addr_v4() << endl;
   }
+
+  // Brute Force
+  string client_ip = stream.client_addr_v4().to_string();
+  regex http_start_pattern(R"(^(get|post|put|delete|head|options|patch)[\s\+]+([^\s]+))");
+  smatch url_match;
+
+  if (regex_search(lower_data, url_match, http_start_pattern))
+  {
+    string url_path = url_match[0].str();
+    string client_ip = stream.client_addr_v4().to_string();
+
+    if (httpMap.find(client_ip) == httpMap.end())
+    {
+      // Create HTTP State
+      HTTP_State newState;
+      newState.ip = client_ip;
+      newState.first_seen = chrono::system_clock::now();
+      httpMap[client_ip] = newState;
+    }
+
+    // Update HTTP State
+    HTTP_State &http = httpMap[client_ip];
+    http.last_seen = chrono::system_clock::now();
+    http.pending_path = url_path;
+    if (http.apiMap.find(url_path) == http.apiMap.end())
+    {
+      http.apiMap[url_path] = vector<int>();
+    }
+  }
 }
 
 // Backward (server -> client)
-void on_server_data(Stream &stream)
+void on_server_data(Stream &stream, unordered_map<string, HTTP_State> &httpMap)
 {
-}
+  string client_ip = stream.client_addr_v4().to_string();
+  auto it_http = httpMap.find(client_ip);
+  if (it_http == httpMap.end())
+    return;
 
-void on_new_stream(Stream &stream)
-{
-  stream.client_data_callback(&on_client_data);
-  stream.server_data_callback(&on_server_data);
-  stream.auto_cleanup_client_data(true);
-  stream.auto_cleanup_server_data(true);
-  stream.auto_cleanup_payloads(true);
-}
+  HTTP_State &http = it_http->second;
+  const Stream::payload_type &payload = stream.server_payload();
+  if (payload.empty())
+    return;
+  string pending_path = http.pending_path;
+  http.apiMap[pending_path].push_back(payload.size());
+  if (http.apiMap[pending_path].size() > 10)
+    http.apiMap[pending_path].erase(http.apiMap[pending_path].begin());
 
-void on_stream_terminated(Stream &stream, StreamFollower::TerminationReason reason)
-{
+  if (http.apiMap[pending_path].size() == 10)
+  {
+    vector<int> &lengths = http.apiMap[pending_path];
+    auto result = minmax_element(lengths.begin(), lengths.end());
+    int min_val = *result.first;
+    int max_val = *result.second;
+
+    int range = max_val - min_val;
+    if (range >= 0 && range <= 10)
+    {
+      if (http.http_brute_force == false)
+      {
+        cout << "[ALERT] Brute Focrce Attack Detected" << endl;
+        cout << "Path : " << pending_path << endl;
+        http.http_brute_force = true;
+      }
+    }
+  }
 }
 
 #endif

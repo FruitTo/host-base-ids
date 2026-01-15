@@ -65,7 +65,7 @@ int main()
   // string conninfo = db_connect();
   // if(conninfo == "")return 1;
 
-  string conninfo = "user=postgres password=postgres host=localhost port=5432 dbname=postgres target_session_attrs=read-write";
+  string conninfo = "user=postgres password=postgres host=localhost port=5432 dbname=alert_attack target_session_attrs=read-write";
 
   vector<string> interfaceName = getInterfaceName();
   vector<NetworkConfig> configuredInterfaces;
@@ -112,8 +112,6 @@ int main()
     askService("HTTP",   conf.HTTP_SERVERS,   conf.HTTP_PORTS);
     askService("SSH",    conf.SSH_SERVERS,    conf.SSH_PORTS);
     askService("FTP",    conf.FTP_SERVERS,    conf.FTP_PORTS);
-    askService("Oracle", conf.SQL_SERVERS,    conf.ORACLE_PORTS);
-    askService("TELNET", conf.TELNET_SERVERS, conf.FILE_DATA_PORTS);
 
     configuredInterfaces.push_back(conf);
   }
