@@ -49,11 +49,11 @@ inline void parsePorts(const std::string &input, std::vector<uint16_t> &target)
         std::cerr << "Warning: Port number " << port_str << " is out of valid range (1-65535) and was skipped." << std::endl;
       }
     }
-    catch (const std::invalid_argument& e)
+    catch (const std::invalid_argument &e)
     {
       std::cerr << "Warning: Invalid port format '" << port_str << "' found and was skipped." << std::endl;
     }
-    catch (const std::out_of_range& e)
+    catch (const std::out_of_range &e)
     {
       std::cerr << "Warning: Port number " << port_str << " is too large and was skipped." << std::endl;
     }
@@ -109,9 +109,9 @@ int main()
       }
     };
 
-    askService("HTTP",   conf.HTTP_SERVERS,   conf.HTTP_PORTS);
-    askService("SSH",    conf.SSH_SERVERS,    conf.SSH_PORTS);
-    askService("FTP",    conf.FTP_SERVERS,    conf.FTP_PORTS);
+    askService("HTTP", conf.HTTP_SERVERS, conf.HTTP_PORTS);
+    askService("SSH", conf.SSH_SERVERS, conf.SSH_PORTS);
+    askService("FTP", conf.FTP_SERVERS, conf.FTP_PORTS);
 
     configuredInterfaces.push_back(conf);
   }
@@ -119,16 +119,17 @@ int main()
   // Sniffer
   for (NetworkConfig &conf : configuredInterfaces)
   {
-    task.push_back(pool.submit_task([conf, conninfo, mode]() mutable {
+    task.push_back(pool.submit_task([conf, conninfo, mode]() mutable
+                                    {
       try {
         sniff(conf, conninfo, mode);
       } catch (const exception& e) {
         cout << string("sniff exception: ") + e.what();
-      }
-    }));
+      } }));
   }
 
-  for (auto &t : task) t.wait();
+  for (auto &t : task)
+    t.wait();
 
   return 0;
 }
