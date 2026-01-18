@@ -120,12 +120,13 @@ int main()
   for (NetworkConfig &conf : configuredInterfaces)
   {
     task.push_back(pool.submit_task([conf, conninfo, mode]() mutable
-                                    {
+    {
       try {
         sniff(conf, conninfo, mode);
       } catch (const exception& e) {
         cout << string("sniff exception: ") + e.what();
-      } }));
+      }
+    }));
   }
 
   for (auto &t : task)

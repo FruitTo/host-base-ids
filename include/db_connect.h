@@ -53,26 +53,24 @@ string db_connect()
   }
 }
 
-void log_attack_to_db(pqxx::connection &conn, const string &c_ip, int c_port, const string &s_ip, int s_port, const string &proto, const string &attack_type, const string &details)
+void log_attack_to_db(pqxx::connection &conn, const string &c_ip, int c_port, const string &s_ip, int s_port, const string &proto, const string &attack_type, const string &attack_detail, const string &response)
 {
   try
   {
-    auto time_t_val = chrono::system_clock::to_time_t(chrono::system_clock::now());
-    stringstream ss;
-    ss << put_time(localtime(&time_t_val), "%Y-%m-%d %H:%M:%S");
-    string log_time_str = ss.str();
-
     pqxx::work txn(conn);
     txn.exec_params(
-      "INSERT INTO attack_logs (event_time, src_addr, src_port, dst_addr, dst_port, protocol, attack_type, response_type) "
-      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-      log_time_str, c_ip, to_string(c_port), s_ip, to_string(s_port), proto, attack_type, details);
+      "INSERT INTO attack_logs (event_time, src_addr, src_port, dst_addr, dst_port, protocol, attack_type, attack_detail, response_type) "
+      "VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7, $8)",
+      c_ip, c_port, s_ip, s_port, proto, attack_type, attack_detail, response);
     txn.commit();
+  }
+  catch (const pqxx::sql_error &e)
+  {
+    cerr << "SQL Error: " << e.what() << "\nQuery: " << e.query() << endl;
   }
   catch (const exception &e)
   {
-    cerr << "DB Log Error: " << e.what() << endl;
+    cerr << "General Error: " << e.what() << endl;
   }
 }
-
 #endif

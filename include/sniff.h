@@ -229,12 +229,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
             icmp_connect.icmp_flood = true;
             if(mode && icmp_connect.blocked == false) {
               block_ip(client_ip, BLOCK_TIMEOUT);
-              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "ICMP Flood", "Block");
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "ICMP Flood", "Block");
               icmp_connect.blocked = true;
             }
             else
             {
-              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "ICMP Flood", "Alert");
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "ICMP Flood", "Alert");
             }
           }
           else
@@ -291,19 +291,19 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] NULL SCAN DETECTED" << endl;
           ip_connect.null_scan = true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan (Null Scan)", "Alert");
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan", "Null Scan", "Alert");
         }
         if (ip.src_addr().to_string() == ip_key && tcp->flags() == 63 && ip_connect.full_xmas_scan == false)
         {
           cout << "[ALERT] TCP FULL XMAS SCAN DETECTED" << endl;
           ip_connect.full_xmas_scan= true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan (Full Xmas Scan)", "Alert");
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan", "Full Xmas Scan", "Alert");
         }
         if (ip.src_addr().to_string() == ip_key && tcp->flags() == 41 && ip_connect.std_xmas_scan == false)
         {
           cout << "[ALERT] Standard Nmap Xmas Scan DETECTED" << endl;
           ip_connect.std_xmas_scan = true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan (Xmas Scan)", "Alert");
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan", " Xmas Scan", "Alert");
         }
       }
 
@@ -315,7 +315,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] PORT SCAN DETECTED (" << ip_connect.port_list.size() << " ports)" << endl;
           ip_connect.port_scan = true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan (Syn Scan)", "Alert");
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan", "Syn Scan", "Alert");
         }
       }
 
@@ -328,12 +328,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           ip_connect.syn_flood = true;
           if(mode && ip_connect.blocked == false) {
             block_ip(client_ip, BLOCK_TIMEOUT);
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Syn Flood", "Block");
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "Syn Flood", "Block");
             ip_connect.blocked = true;
           }
           else
           {
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Syn Flood", "Alert");
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "Syn Flood", "Alert");
           }
         }
       }
@@ -394,12 +394,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         udp_connect.udp_flood = true;
         if(mode && udp_connect.blocked == false) {
           block_ip(client_ip, BLOCK_TIMEOUT);
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Block");
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "UDP Flood", "Block");
           udp_connect.blocked = true;
         }
         else
         {
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Alert");
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "UDP Flood", "Alert");
         }
       }
       else
@@ -417,12 +417,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           udp_connect.udp_flood = true;
           if(mode && udp_connect.blocked == false) {
             block_ip(client_ip, BLOCK_TIMEOUT);
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Block");
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS",  "UDP Flood", "Block");
             udp_connect.blocked = true;
           }
           else
           {
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Alert");
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "UDP Flood", "Alert");
           }
         }
         else
@@ -475,12 +475,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           ssh.ssh_brute_force = true;
           if(mode && ssh.blocked == false) {
             block_ip(client_ip, BLOCK_TIMEOUT);
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Block");
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Block");
             ssh.blocked = true;
           }
           else
           {
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Alert");
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Alert");
           }
         }
         else
@@ -496,12 +496,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           ssh.ssh_brute_force = true;
           if(mode && ssh.blocked == false) {
             block_ip(client_ip, BLOCK_TIMEOUT);
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Block");
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Block");
             ssh.blocked = true;
           }
           else
           {
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Alert");
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Alert");
           }
         }
         else
@@ -543,12 +543,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
             ftp.ftp_brute_force = true;
             if(mode && ftp.blocked == false) {
               block_ip(client_ip, BLOCK_TIMEOUT);
-              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Block");
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "FTP Brute Force", "Block");
               ftp.blocked = true;
             }
             else
             {
-              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Alert");
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "FTP Brute Force", "Alert");
             }
           }
           else
@@ -565,12 +565,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
             ftp.ftp_brute_force = true;
             if(mode && ftp.blocked == false) {
               block_ip(client_ip, BLOCK_TIMEOUT);
-              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Block");
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "FTP Brute Force", "Block");
               ftp.blocked = true;
             }
             else
             {
-              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Alert");
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "FTP Brute Force", "Alert");
             }
           }
           else

@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS attack_logs (
     dst_port VARCHAR(10),
     protocol VARCHAR(20),
     attack_type VARCHAR(256),
+    attack_detail VARCHAR(256),
     response_type VARCHAR(256)
 );
 

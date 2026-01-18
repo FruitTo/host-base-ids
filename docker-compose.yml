@@ -30,6 +30,8 @@ services:
       - ${GRAFANA_PORT}:${GRAFANA_PORT}
     volumes:
       - ./datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+      - ./dashboards:/var/lib/grafana/dashboards
     depends_on:
       postgres:
         condition: service_healthy
