@@ -53,12 +53,7 @@ string db_connect()
   }
 }
 
-void log_attack_to_db(pqxx::connection &conn,
-                      const string &c_ip, int c_port,
-                      const string &s_ip, int s_port,
-                      const string &proto,
-                      const string &attack_type,
-                      const string &details)
+void log_attack_to_db(pqxx::connection &conn, const string &c_ip, int c_port, const string &s_ip, int s_port, const string &proto, const string &attack_type, const string &details)
 {
   try
   {
@@ -69,9 +64,9 @@ void log_attack_to_db(pqxx::connection &conn,
 
     pqxx::work txn(conn);
     txn.exec_params(
-        "INSERT INTO attack_logs (event_time, src_addr, src_port, dst_addr, dst_port, protocol, attack_type, response_type) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-        log_time_str, c_ip, c_port, s_ip, s_port, proto, attack_type, details);
+      "INSERT INTO attack_logs (event_time, src_addr, src_port, dst_addr, dst_port, protocol, attack_type, response_type) "
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      log_time_str, c_ip, to_string(c_port), s_ip, to_string(s_port), proto, attack_type, details);
     txn.commit();
   }
   catch (const exception &e)

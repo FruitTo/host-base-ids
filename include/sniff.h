@@ -55,6 +55,7 @@ const chrono::seconds HTTP_TIMEOUT = chrono::seconds(30);
 const chrono::seconds IP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
 const chrono::seconds UDP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
 const chrono::seconds ICMP_CONNECT_TIMEOUT = chrono::seconds(30);
+const chrono::minutes BLOCK_TIMEOUT = chrono::minutes(1);
 
 // LIMIT
 const double ICMP_PPS_LIMIT = 100.0;
@@ -117,12 +118,12 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   {
     stream.client_data_callback([&](Stream &s)
     {
-      on_client_data(s, httpMap, conn);
+      on_client_data(s, httpMap, conn, mode, BLOCK_TIMEOUT);
     });
 
     stream.server_data_callback([&](Stream &s)
     {
-      on_server_data(s, httpMap, conn);
+      on_server_data(s, httpMap, conn, mode, BLOCK_TIMEOUT);
     });
 
     stream.auto_cleanup_payloads(true);
@@ -226,7 +227,15 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           {
             cout << "[ALERT] ICMP Flood DETECTED" << endl;
             icmp_connect.icmp_flood = true;
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "ICMP Flood", "Alert");
+            if(mode && icmp_connect.blocked == false) {
+              block_ip(client_ip, BLOCK_TIMEOUT);
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "ICMP Flood", "Block");
+              icmp_connect.blocked = true;
+            }
+            else
+            {
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "ICMP Flood", "Alert");
+            }
           }
           else
           {
@@ -290,7 +299,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
           ip_connect.full_xmas_scan= true;
           log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan (Full Xmas Scan)", "Alert");
         }
-        if (ip.src_addr().to_string() == ip_key && tcp->flags() == 56 && ip_connect.std_xmas_scan == false)
+        if (ip.src_addr().to_string() == ip_key && tcp->flags() == 41 && ip_connect.std_xmas_scan == false)
         {
           cout << "[ALERT] Standard Nmap Xmas Scan DETECTED" << endl;
           ip_connect.std_xmas_scan = true;
@@ -317,16 +326,15 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] SYN FLOOD DETECTED (Count: " << ip_connect.syn_count << ")" << endl;
           ip_connect.syn_flood = true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Syn Flood", "Alert");
-        }
-
-        // IPS Block
-        if (!ip_connect.blocked && mode && ip_connect.syn_flood)
-        {
-          string block_command = "sudo iptables -A INPUT -s " + ip_connect.ip + " -j DROP";
-          if (system(block_command.c_str()) == 0)
-            cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ip_connect.ip << endl;
-          ip_connect.blocked = true;
+          if(mode && ip_connect.blocked == false) {
+            block_ip(client_ip, BLOCK_TIMEOUT);
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Syn Flood", "Block");
+            ip_connect.blocked = true;
+          }
+          else
+          {
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Syn Flood", "Alert");
+          }
         }
       }
     }
@@ -384,7 +392,15 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
       {
         cout << "[ALERT] UDP Flood DETECTED" << endl;
         udp_connect.udp_flood = true;
-        log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Alert");
+        if(mode && udp_connect.blocked == false) {
+          block_ip(client_ip, BLOCK_TIMEOUT);
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Block");
+          udp_connect.blocked = true;
+        }
+        else
+        {
+          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Alert");
+        }
       }
       else
       {
@@ -399,7 +415,15 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] UDP Flood DETECTED" << endl;
           udp_connect.udp_flood = true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Alert");
+          if(mode && udp_connect.blocked == false) {
+            block_ip(client_ip, BLOCK_TIMEOUT);
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Block");
+            udp_connect.blocked = true;
+          }
+          else
+          {
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "UDP Flood", "Alert");
+          }
         }
         else
         {
@@ -449,29 +473,19 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
           ssh.ssh_brute_force = true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Alert");
+          if(mode && ssh.blocked == false) {
+            block_ip(client_ip, BLOCK_TIMEOUT);
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Block");
+            ssh.blocked = true;
+          }
+          else
+          {
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Alert");
+          }
         }
         else
         {
           return true;
-        }
-
-        // IPS
-        if (ssh.blocked == false)
-        {
-          if (mode && ssh.ssh_brute_force)
-          {
-            string block_command = "sudo iptables -A INPUT -s " + ssh.ip + " -j DROP";
-            if (system(block_command.c_str()) == 0)
-            {
-              cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ssh.ip << endl;
-            }
-            else
-            {
-              cerr << "[ACTION FAILED] COULD NOT EXECUTE IPTABLES COMMAND." << endl;
-            }
-            ssh.blocked = true;
-          }
         }
       }
       else if (ssh.login_fail > SSH_LOGIN_FAIL_LIMIT)
@@ -480,29 +494,19 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
           ssh.ssh_brute_force = true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Alert");
+          if(mode && ssh.blocked == false) {
+            block_ip(client_ip, BLOCK_TIMEOUT);
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Block");
+            ssh.blocked = true;
+          }
+          else
+          {
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "SSH Brute Force", "Alert");
+          }
         }
         else
         {
           return true;
-        }
-
-        // IPS
-        if (ssh.blocked == false)
-        {
-          if (mode && ssh.ssh_brute_force)
-          {
-            string block_command = "sudo iptables -A INPUT -s " + ssh.ip + " -j DROP";
-            if (system(block_command.c_str()) == 0)
-            {
-              cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ssh.ip << endl;
-            }
-            else
-            {
-              cerr << "[ACTION FAILED] COULD NOT EXECUTE IPTABLES COMMAND." << endl;
-            }
-            ssh.blocked = true;
-          }
         }
       }
     }
@@ -522,98 +526,79 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
     // IF FTP
     if (protocol == "ftp")
     {
-    auto it_ftp = ftpMap.find(ip_key);
-    if (it_ftp != ftpMap.end())
-    {
-      // Update FTP State
-      FTP_State &ftp = it_ftp->second;
-      ftp.last_seen = SystemClock::now();
-      auto duration = ftp.last_seen - ftp.first_seen;
-      auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
-      ftp_read_fail_state(VSFTPD_LOG_PATH, ftp);
-      if (elapsed_seconds < FTP_DURATION_LIMIT && ftp.login_fail > FTP_LOGIN_FAIL_DURATION_LIMIT)
+      auto it_ftp = ftpMap.find(ip_key);
+      if (it_ftp != ftpMap.end())
       {
-        if (ftp.ftp_brute_force == false)
+        // Update FTP State
+        FTP_State &ftp = it_ftp->second;
+        ftp.last_seen = SystemClock::now();
+        auto duration = ftp.last_seen - ftp.first_seen;
+        auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
+        ftp_read_fail_state(VSFTPD_LOG_PATH, ftp);
+        if (elapsed_seconds < FTP_DURATION_LIMIT && ftp.login_fail > FTP_LOGIN_FAIL_DURATION_LIMIT)
         {
-          cout << "[ALERT] FTP BRUTE FORCE DETECTED" << endl;
-          ftp.ftp_brute_force = true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Alert");
-        }
-        else
-        {
-          return true;
-        }
-
-        // IPS
-        if (ftp.blocked == false)
-        {
-          if (mode && ftp.ftp_brute_force)
+          if (ftp.ftp_brute_force == false)
           {
-            string block_command = "sudo iptables -A INPUT -s " + ftp.ip + " -j DROP";
-            if (system(block_command.c_str()) == 0)
-            {
-              cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ftp.ip << endl;
+            cout << "[ALERT] FTP BRUTE FORCE DETECTED" << endl;
+            ftp.ftp_brute_force = true;
+            if(mode && ftp.blocked == false) {
+              block_ip(client_ip, BLOCK_TIMEOUT);
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Block");
+              ftp.blocked = true;
             }
             else
             {
-              cerr << "[ACTION FAILED] COULD NOT EXECUTE IPTABLES COMMAND." << endl;
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Alert");
             }
           }
-          ftp.blocked = true;
-        }
-      }
-      else if (ftp.login_fail > FTP_LOGIN_FAIL_LIMIT)
-      {
-        if (ftp.ftp_brute_force == false)
-        {
-          cout << "[ALERT] FTP BRUTE FORCE DETECTED (Total Limit): " << endl;
-          ftp.ftp_brute_force = true;
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Alert");
-        }
-        else
-        {
-          return true;
-        }
-
-        // IPS
-        if (ftp.blocked == false)
-        {
-          if (mode && ftp.ftp_brute_force)
+          else
           {
-            string block_command = "sudo iptables -A INPUT -s " + ftp.ip + " -j DROP";
-            if (system(block_command.c_str()) == 0)
-            {
-              cout << "[ACTION] SUCCESSFULLY BLOCKED IP: " << ftp.ip << endl;
+            return true;
+          }
+
+        }
+        else if (ftp.login_fail > FTP_LOGIN_FAIL_LIMIT)
+        {
+          if (ftp.ftp_brute_force == false)
+          {
+            cout << "[ALERT] FTP BRUTE FORCE DETECTED" << endl;
+            ftp.ftp_brute_force = true;
+            if(mode && ftp.blocked == false) {
+              block_ip(client_ip, BLOCK_TIMEOUT);
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Block");
+              ftp.blocked = true;
             }
             else
             {
-              cerr << "[ACTION FAILED] COULD NOT EXECUTE IPTABLES COMMAND." << endl;
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "FTP Brute Force", "Alert");
             }
           }
-          ftp.blocked = true;
+          else
+          {
+            return true;
+          }
         }
       }
-    }
-    else
-    {
-      // Create FTP State
-      FTP_State ftp;
-      ftp.ip = ip.src_addr().to_string();
-      ftp.first_seen = SystemClock::now();
-      ftp.last_seen = SystemClock::now();
-      ftp.login_fail = 0;
+      else
+      {
+        // Create FTP State
+        FTP_State ftp;
+        ftp.ip = ip.src_addr().to_string();
+        ftp.first_seen = SystemClock::now();
+        ftp.last_seen = SystemClock::now();
+        ftp.login_fail = 0;
 
-      ftpMap[ip_key] = ftp;
-    }
+        ftpMap[ip_key] = ftp;
+      }
     }
 
     // EvenLog
     auto it_even = evenMap.find(client_ip);
     if(it_even == evenMap.end())
     {
-    // Create Evenlog
-    vector<EventLog> even_log;
-    evenMap[client_ip] = even_log;
+      // Create Evenlog
+      vector<EventLog> even_log;
+      evenMap[client_ip] = even_log;
     }
 
     clean_event_log(evenMap, IP_TIMEOUT);

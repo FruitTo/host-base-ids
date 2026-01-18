@@ -5,7 +5,8 @@
 #include <string>
 #include <vector>
 
-struct NetworkConfig {
+struct NetworkConfig
+{
    std::string NAME;
    std::string IP;
 
@@ -31,4 +32,28 @@ struct NetworkConfig {
    std::optional<bool> SQL_SERVERS = false;
 };
 
+void block_ip(const std::string &ip_address, std::chrono::minutes minutes)
+{
+   if (ip_address.empty()) return;
+
+   std::string block_cmd = "sudo iptables -I INPUT -s " + ip_address + " -j DROP";
+   std::string unblock_cmd = "sudo iptables -D INPUT -s " + ip_address + " -j DROP";
+   std::string schedule_cmd = "echo \"" + unblock_cmd + "\" | at now + " + std::to_string(minutes.count()) + " minutes";
+   std::cout << "[ACTION] Block IP: " << ip_address << " for " << minutes.count() << " minutes." << std::endl;
+   int block_result = std::system(block_cmd.c_str());
+
+   if (block_result == 0)
+   {
+      std::cout << "[SUCCESS] IP " << ip_address << " is now filtered." << std::endl;
+      int schedule_result = std::system(schedule_cmd.c_str());
+      if (schedule_result != 0)
+      {
+         std::cerr << "[WARNING] 'at' command failed. Please install with: sudo apt install at" << std::endl;
+      }
+   }
+   else
+   {
+      std::cerr << "[ERROR] Failed to execute iptables. Check sudo permissions." << std::endl;
+   }
+}
 #endif
