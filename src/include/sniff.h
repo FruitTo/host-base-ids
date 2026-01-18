@@ -34,6 +34,7 @@
 #include "./icmp_connect.h"
 #include "./tcp_stream_callback.h"
 #include "./db_connect.h"
+#include "./config.h"
 
 using namespace std;
 
@@ -46,40 +47,43 @@ using namespace chrono;
 using Clock = chrono::steady_clock;
 using SystemClock = chrono::system_clock;
 
-// ********************************* MUST CONFIG BEFORE USING *********************************
-// Timeout
-const chrono::seconds IP_TIMEOUT = chrono::seconds(10);
-const chrono::seconds SSH_TIMEOUT = chrono::seconds(30);
-const chrono::seconds FTP_TIMEOUT = chrono::seconds(30);
-const chrono::seconds HTTP_TIMEOUT = chrono::seconds(30);
-const chrono::seconds IP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
-const chrono::seconds UDP_PORT_CONNECT_TIMEOUT = chrono::seconds(30);
-const chrono::seconds ICMP_CONNECT_TIMEOUT = chrono::seconds(30);
-const chrono::minutes BLOCK_TIMEOUT = chrono::minutes(1);
-
-// LIMIT
-const double ICMP_PPS_LIMIT = 100.0;
-const int PORT_CONNECT_LIMIT = 80;
-const chrono::seconds PORT_CONNECT_DURATION_LIMIT = chrono::seconds(30);
-const int SYN_CONNECT_LIMIT = 10000;
-const chrono::seconds SYN_CONNECT_DURATION_LIMIT = chrono::seconds(30);
-const int UNREACH_COUNT_LIMIT = 30;
-const int UDP_PPS_LIMIT = 10000;
-const int SSH_LOGIN_FAIL_LIMIT = 10;
-const int SSH_LOGIN_FAIL_DURATION_LIMIT = 100;
-const chrono::seconds SSH_DURATION_LIMIT = chrono::seconds(60);
-const int FTP_LOGIN_FAIL_LIMIT = 10;
-const int FTP_LOGIN_FAIL_DURATION_LIMIT = 100;
-const chrono::seconds FTP_DURATION_LIMIT = chrono::seconds(60);
-
-// Path
-const string BTMP_PATH = "/var/log/btmp";
-const string VSFTPD_LOG_PATH = "/var/log/vsftpd.log";
-
 inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
 {
-  pqxx::connection conn{conninfo};
+  AppConfig app_config;
+  load_config("server.conf", app_config);
 
+  const chrono::seconds IP_TIMEOUT = chrono::seconds(app_config.ip_timeout);
+  const chrono::seconds SSH_TIMEOUT = chrono::seconds(app_config.ssh_timeout);
+  const chrono::seconds FTP_TIMEOUT = chrono::seconds(app_config.ftp_timeout);
+  const chrono::seconds HTTP_TIMEOUT = chrono::seconds(app_config.http_timeout);
+  const chrono::seconds IP_PORT_CONNECT_TIMEOUT = chrono::seconds(app_config.ip_port_connect_timeout);
+  const chrono::seconds UDP_PORT_CONNECT_TIMEOUT = chrono::seconds(app_config.udp_port_connect_timeout);
+  const chrono::seconds ICMP_CONNECT_TIMEOUT = chrono::seconds(app_config.icmp_connect_timeout);
+  const chrono::minutes BLOCK_TIMEOUT = chrono::minutes(app_config.block_timeout);
+
+  const double ICMP_PPS_LIMIT = app_config.icmp_pps_limit;
+  const int PORT_CONNECT_LIMIT = app_config.port_connect_limit;
+  const chrono::seconds PORT_CONNECT_DURATION_LIMIT = chrono::seconds(app_config.port_connect_duration_limit);
+
+  const int SYN_CONNECT_LIMIT = app_config.syn_connect_limit;
+  const chrono::seconds SYN_CONNECT_DURATION_LIMIT = chrono::seconds(app_config.syn_connect_duration_limit);
+
+  const int UNREACH_COUNT_LIMIT = app_config.unreach_count_limit;
+  const int UDP_PPS_LIMIT = app_config.udp_pps_limit;
+
+  const int SSH_LOGIN_FAIL_LIMIT = app_config.ssh_login_fail_limit;
+  const int SSH_LOGIN_FAIL_DURATION_LIMIT = app_config.ssh_login_fail_duration_limit;
+  const chrono::seconds SSH_DURATION_LIMIT = chrono::seconds(app_config.ssh_duration_limit);
+
+  const int FTP_LOGIN_FAIL_LIMIT = app_config.ftp_login_fail_limit;
+  const int FTP_LOGIN_FAIL_DURATION_LIMIT = app_config.ftp_login_fail_duration_limit;
+  const chrono::seconds FTP_DURATION_LIMIT = chrono::seconds(app_config.ftp_duration_limit);
+
+  const string BTMP_PATH = app_config.btmp_path;
+  const string VSFTPD_LOG_PATH = app_config.vsftpd_log_path;
+
+  // postgres connect
+  pqxx::connection conn{conninfo};
   // Initial Log Variable
   string currentDay = currentDate();
   string currentTime = timeStamp();
@@ -313,7 +317,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
       {
         if (ip_connect.port_scan == false)
         {
-          cout << "[ALERT] PORT SCAN DETECTED (" << ip_connect.port_list.size() << " ports)" << endl;
+          cout << "[ALERT] PORT SCAN DETECTED" << endl;
           ip_connect.port_scan = true;
           log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Port Scan", "Syn Scan", "Alert");
         }
@@ -324,7 +328,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
       {
         if (ip_connect.syn_flood == false)
         {
-          cout << "[ALERT] SYN FLOOD DETECTED (Count: " << ip_connect.syn_count << ")" << endl;
+          cout << "[ALERT] SYN FLOOD DETECTED" << endl;
           ip_connect.syn_flood = true;
           if(mode && ip_connect.blocked == false) {
             block_ip(client_ip, BLOCK_TIMEOUT);

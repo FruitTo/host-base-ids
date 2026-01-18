@@ -3,6 +3,7 @@
 #include "./include/sniff.h"
 #include "./include/db_connect.h"
 #include "./include/network_config.h"
+#include "./include/config.h"
 
 #include <pqxx/pqxx>
 #include <iostream>
@@ -31,8 +32,8 @@ using namespace BS;
 
 inline void parsePorts(const std::string &input, std::vector<uint16_t> &target)
 {
-  std::istringstream iss(input);
-  std::string port_str;
+  istringstream iss(input);
+  string port_str;
 
   while (iss >> port_str)
   {
