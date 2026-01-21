@@ -47,10 +47,10 @@ using namespace chrono;
 using Clock = chrono::steady_clock;
 using SystemClock = chrono::system_clock;
 
-inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
+inline void sniff(NetworkConfig &conf, bool mode)
 {
   AppConfig app_config;
-  load_config("server.conf", app_config);
+  load_config("/etc/hips.conf", app_config);
 
   const chrono::seconds IP_TIMEOUT = chrono::seconds(app_config.ip_timeout);
   const chrono::seconds SSH_TIMEOUT = chrono::seconds(app_config.ssh_timeout);
@@ -83,6 +83,8 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   const string VSFTPD_LOG_PATH = app_config.vsftpd_log_path;
 
   // postgres connect
+  // string conninfo = "user=postgres password=postgres host=localhost port=5432 dbname=alert_attack target_session_attrs=read-write";
+  string conninfo = "user=" + app_config.postgres_user + " password=" + app_config.postgres_password + " host=" + app_config.postgres_host + " port=" + app_config.postgres_port + " dbname=" + app_config.postgres_db + " target_session_attrs=" + app_config.target_session_attrs;
   pqxx::connection conn{conninfo};
   // Initial Log Variable
   string currentDay = currentDate();
@@ -132,7 +134,8 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
 
     stream.auto_cleanup_payloads(true);
     stream.auto_cleanup_client_data(true);
-    stream.auto_cleanup_server_data(true); });
+    stream.auto_cleanup_server_data(true);
+  });
   // Callbacks for terminated streams
   follower.stream_termination_callback([&](Stream &stream, StreamFollower::TerminationReason reason) {});
 
@@ -141,7 +144,7 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
   cfg.set_promisc_mode(true);
   Sniffer sniffer(conf.NAME, cfg);
   sniffer.sniff_loop([&](Packet &pkt)
-                     {
+  {
     PDU *pdu = pkt.pdu();
     if (!pdu) return true;
     IP &ip = pdu->rfind_pdu<IP>();
@@ -365,63 +368,40 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
     // UDP Connect
     if(UDP* udp = pdu->find_pdu<UDP>())
     {
-    auto it_ip = ipConnectMap.find(ip_key);
-    if (it_ip != ipConnectMap.end());
+      auto it_ip = ipConnectMap.find(ip_key);
+      if (it_ip != ipConnectMap.end());
 
-    auto it_udp = udpConnectMap.find(ip_key);
-    if (it_udp != udpConnectMap.end())
-    {
-      // Update UDP Map
-      UDP_Connect &udp_connect = it_udp->second;
-
-      udp_connect.packet_count++;
-      udp_connect.last_seen = SystemClock::now();
-
-      uint16_t port_connect = define_port_connect(pdu, ip_key);
-      auto it = find(udp_connect.port_list.begin(), udp_connect.port_list.end(), port_connect);
-      if (it == udp_connect.port_list.end())
+      auto it_udp = udpConnectMap.find(ip_key);
+      if (it_udp != udpConnectMap.end())
       {
-        udp_connect.port_list.push_back(port_connect);
-      }
+        // Update UDP Map
+        UDP_Connect &udp_connect = it_udp->second;
 
-      if (ip.src_addr().to_string() == ip_key)
-      {
-        if (!portList.count(port_connect))
+        udp_connect.packet_count++;
+        udp_connect.last_seen = SystemClock::now();
+
+        uint16_t port_connect = define_port_connect(pdu, ip_key);
+        auto it = find(udp_connect.port_list.begin(), udp_connect.port_list.end(), port_connect);
+        if (it == udp_connect.port_list.end())
         {
-          udp_connect.unreach_count++;
+          udp_connect.port_list.push_back(port_connect);
         }
-      }
 
-      if (udp_connect.unreach_count > UNREACH_COUNT_LIMIT && udp_connect.udp_flood == false)
-      {
-        cout << "[ALERT] UDP Flood DETECTED" << endl;
-        udp_connect.udp_flood = true;
-        if(mode && udp_connect.blocked == false) {
-          block_ip(client_ip, BLOCK_TIMEOUT);
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "UDP Flood", "Block");
-          udp_connect.blocked = true;
-        }
-        else
+        if (ip.src_addr().to_string() == ip_key)
         {
-          log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "UDP Flood", "Alert");
+          if (!portList.count(port_connect))
+          {
+            udp_connect.unreach_count++;
+          }
         }
-      }
-      else
-      {
-        return true;
-      }
 
-      auto duration = udp_connect.last_seen - udp_connect.first_seen;
-      auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
-      if (elapsed_seconds.count() > 0)
-      {
-        if ((udp_connect.packet_count / elapsed_seconds.count()) > UDP_PPS_LIMIT && udp_connect.udp_flood == false)
+        if (udp_connect.unreach_count > UNREACH_COUNT_LIMIT && udp_connect.udp_flood == false)
         {
           cout << "[ALERT] UDP Flood DETECTED" << endl;
           udp_connect.udp_flood = true;
           if(mode && udp_connect.blocked == false) {
             block_ip(client_ip, BLOCK_TIMEOUT);
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS",  "UDP Flood", "Block");
+            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "UDP Flood", "Block");
             udp_connect.blocked = true;
           }
           else
@@ -433,98 +413,121 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
         {
           return true;
         }
-      }
-    }
-    else
-    {
-      // Create UDP Map
-      UDP_Connect udp_connect;
-      udp_connect.ip = ip_key;
-      udp_connect.first_seen = SystemClock::now();
-      udp_connect.last_seen = SystemClock::now();
-      udp_connect.packet_count = 1;
 
-      uint16_t port_connect = define_port_connect(pdu, ip_key);
-      udp_connect.port_list.push_back(port_connect);
-
-      if (ip.src_addr().to_string() == ip_key)
-      {
-        if (!portList.count(udp->dport()))
+        auto duration = udp_connect.last_seen - udp_connect.first_seen;
+        auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
+        if (elapsed_seconds.count() > 0)
         {
-          udp_connect.unreach_count++;
+          if ((udp_connect.packet_count / elapsed_seconds.count()) > UDP_PPS_LIMIT && udp_connect.udp_flood == false)
+          {
+            cout << "[ALERT] UDP Flood DETECTED" << endl;
+            udp_connect.udp_flood = true;
+            if(mode && udp_connect.blocked == false) {
+              block_ip(client_ip, BLOCK_TIMEOUT);
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS",  "UDP Flood", "Block");
+              udp_connect.blocked = true;
+            }
+            else
+            {
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "DoS/DDoS", "UDP Flood", "Alert");
+            }
+          }
+          else
+          {
+            return true;
+          }
         }
       }
+      else
+      {
+        // Create UDP Map
+        UDP_Connect udp_connect;
+        udp_connect.ip = ip_key;
+        udp_connect.first_seen = SystemClock::now();
+        udp_connect.last_seen = SystemClock::now();
+        udp_connect.packet_count = 1;
 
-      udpConnectMap[ip_key] = udp_connect;
-    }
+        uint16_t port_connect = define_port_connect(pdu, ip_key);
+        udp_connect.port_list.push_back(port_connect);
+
+        if (ip.src_addr().to_string() == ip_key)
+        {
+          if (!portList.count(udp->dport()))
+          {
+            udp_connect.unreach_count++;
+          }
+        }
+        udpConnectMap[ip_key] = udp_connect;
+      }
     }
 
     // IF SSH
     if (protocol == "ssh")
     {
-    auto it_ssh = sshMap.find(ip_key);
-    if (it_ssh != sshMap.end())
-    {
-      // Update SSH State
-      SSH_State &ssh = it_ssh->second;
-      ssh.last_seen = SystemClock::now();
-      auto duration = ssh.last_seen - ssh.first_seen;
-      auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
-      ssh_read_fail_state(BTMP_PATH, ssh);
-      if (elapsed_seconds < SSH_DURATION_LIMIT && ssh.login_fail > SSH_LOGIN_FAIL_DURATION_LIMIT)
+      auto it_ssh = sshMap.find(ip_key);
+      if (it_ssh != sshMap.end())
       {
-        if (ssh.ssh_brute_force == false)
+        // Update SSH State
+        SSH_State &ssh = it_ssh->second;
+        ssh.last_seen = SystemClock::now();
+        auto duration = ssh.last_seen - ssh.first_seen;
+        auto elapsed_seconds = chrono::duration_cast<chrono::seconds>(duration);
+        ssh_read_fail_state(BTMP_PATH, ssh);
+        if (elapsed_seconds < SSH_DURATION_LIMIT && ssh.login_fail > SSH_LOGIN_FAIL_DURATION_LIMIT)
         {
-          cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
-          ssh.ssh_brute_force = true;
-          if(mode && ssh.blocked == false) {
-            block_ip(client_ip, BLOCK_TIMEOUT);
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Block");
-            ssh.blocked = true;
+          if (ssh.ssh_brute_force == false)
+          {
+            cout << "[ALERT] SSH BRUTE FORCE DETECTED (High Rate): " << ssh.ip << endl;
+            ssh.ssh_brute_force = true;
+            if(mode && ssh.blocked == false) {
+              block_ip(client_ip, BLOCK_TIMEOUT);
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Block");
+              ssh.blocked = true;
+            }
+            else
+            {
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Alert");
+            }
           }
           else
           {
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Alert");
+            return true;
           }
         }
-        else
+        else if (ssh.login_fail > SSH_LOGIN_FAIL_LIMIT)
         {
-          return true;
-        }
-      }
-      else if (ssh.login_fail > SSH_LOGIN_FAIL_LIMIT)
-      {
-        if (ssh.ssh_brute_force == false)
-        {
-          cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
-          ssh.ssh_brute_force = true;
-          if(mode && ssh.blocked == false) {
-            block_ip(client_ip, BLOCK_TIMEOUT);
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Block");
-            ssh.blocked = true;
+          if (ssh.ssh_brute_force == false)
+          {
+            cout << "[ALERT] SSH BRUTE FORCE DETECTED (Total Limit): " << ssh.ip << endl;
+            ssh.ssh_brute_force = true;
+            if(mode && ssh.blocked == false)
+            {
+              block_ip(client_ip, BLOCK_TIMEOUT);
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Block");
+              ssh.blocked = true;
+            }
+            else
+            {
+              log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Alert");
+            }
           }
           else
           {
-            log_attack_to_db(conn, client_ip, client_port, server_ip, server_port, protocol, "Brute Force", "SSH Brute Force", "Alert");
+            return true;
           }
         }
-        else
-        {
-          return true;
-        }
       }
-    }
-    else
-    {
-      // Create SSH State
-      SSH_State ssh;
-      ssh.ip = ip.src_addr().to_string();
-      ssh.first_seen = SystemClock::now();
-      ssh.last_seen = SystemClock::now();
-      ssh.login_fail = 0;
+      else
+      {
+        // Create SSH State
+        SSH_State ssh;
+        ssh.ip = ip.src_addr().to_string();
+        ssh.first_seen = SystemClock::now();
+        ssh.last_seen = SystemClock::now();
+        ssh.login_fail = 0;
 
-      sshMap[ip_key] = ssh;
-    }
+        sshMap[ip_key] = ssh;
+      }
     }
 
     // IF FTP
@@ -612,7 +615,8 @@ inline void sniff(NetworkConfig &conf, const string &conninfo, bool mode)
     clean_udp_connect(udpConnectMap, UDP_PORT_CONNECT_TIMEOUT);
     clean_icmp_connect(icmpConnectMap, ICMP_CONNECT_TIMEOUT);
     clean_http_state(httpMap, HTTP_TIMEOUT);
-    return true; });
+    return true;
+  });
 }
 
 #endif

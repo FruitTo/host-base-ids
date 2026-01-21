@@ -49,8 +49,14 @@ struct AppConfig
   int ftp_duration_limit = 120;
 
   // --- Log Paths ---
-  std::string btmp_path = "/var/log/btmp";
-  std::string vsftpd_log_path = "/var/log/vsftpd.log";
+  string btmp_path = "/var/log/btmp";
+  string vsftpd_log_path = "/var/log/vsftpd.log";
+  string postgres_user;
+  string postgres_password;
+  string postgres_port;
+  string postgres_db;
+  string postgres_host = "localhost";
+  string target_session_attrs = "read-write";
 };
 
 inline std::string trim(const std::string &str) {
@@ -117,6 +123,11 @@ inline void load_config(const std::string &filename, AppConfig &config)
           // --- Paths ---
           else if (key == "BTMP_PATH") config.btmp_path = value;
           else if (key == "VSFTPD_LOG_PATH") config.vsftpd_log_path = value;
+
+          else if (key == "POSTGRES_USER") config.postgres_user = value;
+          else if (key == "POSTGRES_PASSWORD") config.postgres_password = value;
+          else if (key == "POSTGRES_PORT") config.postgres_port = value;
+          else if (key == "POSTGRES_DB") config.postgres_db = value;
 
       } catch (...) {
           std::cerr << "Error parsing key: " << key << "\n";

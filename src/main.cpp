@@ -66,8 +66,6 @@ int main()
   // string conninfo = db_connect();
   // if(conninfo == "")return 1;
 
-  string conninfo = "user=postgres password=postgres host=localhost port=5432 dbname=alert_attack target_session_attrs=read-write";
-
   vector<string> interfaceName = getInterfaceName();
   vector<NetworkConfig> configuredInterfaces;
   thread_pool pool(interfaceName.size());
@@ -120,10 +118,10 @@ int main()
   // Sniffer
   for (NetworkConfig &conf : configuredInterfaces)
   {
-    task.push_back(pool.submit_task([conf, conninfo, mode]() mutable
+    task.push_back(pool.submit_task([conf,  mode]() mutable
     {
       try {
-        sniff(conf, conninfo, mode);
+        sniff(conf, mode);
       } catch (const exception& e) {
         cout << string("sniff exception: ") + e.what();
       }

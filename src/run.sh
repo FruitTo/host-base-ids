@@ -1,7 +1,9 @@
 #!/bin/bash
 
-g++ main.cpp -o main -O3 -lpthread -ltins -lpqxx -lpq -lcurl -std=c++17
+g++ main.cpp -o hips -O3 -lpthread -ltins -lpqxx -lpq -lcurl -std=c++17
 
-sudo ./main
+sudo mv hips /usr/local/bin
 
-rm -rf main
+hips
+
+sudo rm /usr/local/bin/hips
